@@ -7,6 +7,7 @@
  */
 use eframe::egui::Visuals;
 use egui::{Color32, Pos2, Sense, Stroke, Vec2};
+use egui_extras::RetainedImage;
 // Uncomment this section to get access to the console_log macro
 // Use console_log to print things to console. println macro doesn't work
 // here, so you'll need it.
@@ -40,15 +41,16 @@ macro_rules! console_log {
 pub struct PathyApp {
     // this how you opt-out of serialization of a member
     //#[serde(skip)]
-    height: f32,                        // Height of field
-    width: f32,                         // Width of field
-    scale: f32,                         // Scale to display
-    mode: CursorMode,                   // Cursor mode
-    path: Vec<Pos2>,                    // Current path
-    selected: usize,                    // Current selected node (edit mode)
-    processed: Vec<Process>,            // Processed fields
-    overlay: Option<egui::DroppedFile>, // Uploaded overlay
-    result: Option<String>,             // Final string
+    height: f32,             // Height of field
+    width: f32,              // Width of field
+    scale: f32,              // Scale to display
+    mode: CursorMode,        // Cursor mode
+    path: Vec<Pos2>,         // Current path
+    selected: usize,         // Current selected node (edit mode)
+    processed: Vec<Process>, // Processed fields
+    #[serde(skip)]
+    overlay: Option<RetainedImage>, // Uploaded overlay
+    result: Option<String>,  // Final string
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Eq, PartialEq)]
@@ -297,18 +299,24 @@ impl eframe::App for PathyApp {
                 }
                 if ui.button("Create").clicked() {
                     *mode = CursorMode::Create;
+                    // Reset processes
+                    *processed = Vec::new();
                 }
                 if ui.button("Edit").clicked() {
                     *mode = CursorMode::Edit;
+                    *processed = Vec::new();
                 }
                 if ui.button("Delete").clicked() {
                     *mode = CursorMode::Delete;
+                    *processed = Vec::new();
                 }
                 if ui.button("Trim").clicked() {
                     *mode = CursorMode::Trim;
+                    *processed = Vec::new();
                 }
                 if ui.button("Clear").clicked() {
                     *path = Vec::new(); // Clear path
+                    *processed = Vec::new();
                 }
                 if ui.button("Preprocess").clicked() {
                     *processed = Self::preprocess(path, (*scale, aspecty), (*width, *height));
@@ -338,6 +346,8 @@ impl eframe::App for PathyApp {
                 Color32::from_gray(64),
                 Stroke::new(5.0, Color32::WHITE),
             );
+            // Check for dropped files
+            //
             // Variable we'll use to render lines
             let mut prev: Option<Pos2> = None;
             // Line stroke
