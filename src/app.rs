@@ -6,7 +6,7 @@
  * Created by Daksh Gupta.
  */
 use eframe::egui::Visuals;
-use egui::{Color32, Pos2, Sense, Stroke, Vec2};
+use egui::{pos2, Color32, Pos2, Rect, Sense, Stroke, Vec2};
 use egui_extras::RetainedImage;
 // Uncomment this section to get access to the console_log macro
 // Use console_log to print things to console. println macro doesn't work
@@ -34,7 +34,7 @@ macro_rules! console_log {
     // `bare_bones`
     ($($t:tt)*) => (log(&format_args!($($t)*).to_string()))
 }
-*/
+// */
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
@@ -347,7 +347,29 @@ impl eframe::App for PathyApp {
                 Stroke::new(5.0, Color32::WHITE),
             );
             // Check for dropped files
-            //
+            ctx.input(|i| match i.raw.dropped_files.last() {
+                Some(file) => match file.clone().bytes {
+                    Some(bytes) => match RetainedImage::from_image_bytes("", &*bytes) {
+                        Ok(image) => *overlay = Some(image),
+                        Err(_) => (),
+                    },
+                    None => (),
+                },
+                None => (),
+            });
+            // Render image
+            match overlay {
+                Some(image) => {
+                    //image.show_scaled(ui, *scale / (image.width() as f32));
+                    ui.painter().image(
+                        image.texture_id(ctx),
+                        rect,
+                        Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                        Color32::WHITE,
+                    );
+                }
+                None => (),
+            }
             // Variable we'll use to render lines
             let mut prev: Option<Pos2> = None;
             // Line stroke
