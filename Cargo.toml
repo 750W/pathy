@@ -26,6 +26,7 @@ env_logger = "0.10"
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
+wasm-bindgen = "0.2.87"
 
 
 [profile.release]

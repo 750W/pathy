@@ -1,17 +1,54 @@
+/*
+ * PATHY - A tool for creating complex paths
+ * in autonomous code without having to manually write
+ * each and every variable.
+ *
+ * Created by Daksh Gupta.
+ */
 use eframe::egui::Visuals;
 use egui::{Color32, Pos2, Sense, Stroke, Vec2};
+// Uncomment this section to get access to the console_log macro
+// Use console_log to print things to console. println macro doesn't work
+// here, so you'll need it.
+/*use wasm_bindgen::prelude::*;
+#[wasm_bindgen]
+extern "C" {
+    // Use `js_namespace` here to bind `console.log(..)` instead of just
+    // `log(..)`
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+
+    // The `console.log` is quite polymorphic, so we can bind it with multiple
+    // signatures. Note that we need to use `js_name` to ensure we always call
+    // `log` in JS.
+    #[wasm_bindgen(js_namespace = console, js_name = log)]
+    fn log_u32(a: u32);
+
+    // Multiple arguments too!
+    #[wasm_bindgen(js_namespace = console, js_name = log)]
+    fn log_many(a: &str, b: &str);
+}
+macro_rules! console_log {
+    // Note that this is using the `log` function imported above during
+    // `bare_bones`
+    ($($t:tt)*) => (log(&format_args!($($t)*).to_string()))
+}
+*/
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
-pub struct TemplateApp {
+pub struct PathyApp {
     // this how you opt-out of serialization of a member
     //#[serde(skip)]
-    height: f32,      // Height of field
-    width: f32,       // Width of field
-    scale: f32,       // Scale to display
-    mode: CursorMode, // Cursor mode
-    path: Vec<Pos2>,  // Current path
-    selected: usize,  // Current selected node (edit mode)
+    height: f32,                        // Height of field
+    width: f32,                         // Width of field
+    scale: f32,                         // Scale to display
+    mode: CursorMode,                   // Cursor mode
+    path: Vec<Pos2>,                    // Current path
+    selected: usize,                    // Current selected node (edit mode)
+    processed: Vec<Process>,            // Processed fields
+    overlay: Option<egui::DroppedFile>, // Uploaded overlay
+    result: Option<String>,             // Final string
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Eq, PartialEq)]
@@ -21,23 +58,46 @@ enum CursorMode {
     Create,  // Create new nodes and paths
     Edit,    // Edit the positioning of points
     Delete,  // Delete points (whilst still keeping only one path).
+    Trim,    // Trim points (whilst keeping one path)
 }
 
-impl Default for TemplateApp {
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
+enum Process {
+    // Represents movements for the robot to take
+    Drive(i32),
+    Turn(i32),
+}
+
+/// Transpose from one dimension to another, with the same aspect ratio
+fn transpose(pos: Pos2, from: (f32, f32), to: (f32, f32)) -> Pos2 {
+    // We assume the aspect ratio is the same
+    let (from_w, from_h) = from;
+    let (to_w, to_h) = to;
+    Pos2 {
+        x: (pos.x / from_w) * to_w,
+        y: (pos.y / from_h) * to_h,
+    }
+}
+
+impl Default for PathyApp {
     fn default() -> Self {
         Self {
-            // Example stuff:
-            height: 1776.9,
-            width: 1475.3,
-            scale: 600.0,
+            // I actually set these to the 2023 Over-Under dimensions already,
+            // but they can be changed nonetheless.
+            height: 140.5,
+            width: 140.5,
+            scale: 720.0,
             mode: CursorMode::Default,
             path: Vec::new(),
             selected: 0,
+            overlay: None,
+            processed: Vec::new(),
+            result: None,
         }
     }
 }
 
-impl TemplateApp {
+impl PathyApp {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // This is also where you can customize the look and feel of egui using
@@ -51,9 +111,95 @@ impl TemplateApp {
 
         Default::default()
     }
+    fn preprocess(path: &mut Vec<Pos2>, from: (f32, f32), to: (f32, f32)) -> Vec<Process> {
+        /* To create the optimal route, we don't want to rely on somewhat imprecise and arbitrary
+         * integers. Hence, all distances are rounded to the nearest inch. We also use the slope to
+         * calculate the angle that the robot will need to be turned(again, rounded). Then, we'll
+         * reconstruct a new path based off of these measurements, so that the changes can be
+         * previewed before we generate the code.
+         */
+
+        //let mut path = path.clone();
+
+        if path.len() < 2 {
+            // This won't work, we need at least two points for a path
+            return Vec::new();
+        }
+        // We'll need to transpose the path to the correct size
+        *path = path.iter().map(|pos| transpose(*pos, from, to)).collect();
+
+        // Original start
+        let start: Pos2 = path[0];
+        // Store the previous point
+        let mut prev = path.remove(0);
+        let grouped_processes: Vec<(i32, i32)> = path
+            .iter()
+            .map(|pos| {
+                // Lets calculate the angle first.
+                // First, we'll calculate the slope.
+                // The slope is rise/run, and if we draw a triangle then we'll be able to see that it's
+                // also the tangent of the angle a. Therefore, we'll just take the arc-tangent and round it
+                // off.
+                let slope = (prev.y - pos.y) / (prev.x - pos.x); // Inverse since we're going from
+                                                                 // TL origin to BL origin
+                let angle: f32 = slope.atan().to_degrees();
+                // Distance is just pythagorean thm, and we just round it.
+                let distance: f32 =
+                //    f32::sqrt((pos.x - prev.x).powi(2) + (pos.x - prev.x).powi(2)).round() as i32;
+                    (prev.x - pos.x) / angle.to_radians().cos();
+                prev = *pos;
+                (angle.round() as i32, distance.round() as i32)
+            })
+            .collect();
+        prev = start;
+        // Transpose back
+        *path = vec![transpose(start, to, from)];
+        path.append(
+            &mut grouped_processes
+                .iter()
+                .map(|(angle, distance)| {
+                    // Calculate change in x
+                    let cx: f32 = (*angle as f32).to_radians().cos() * (*distance as f32);
+                    let cy: f32 = (*angle as f32).to_radians().sin() * (*distance as f32);
+                    let result = Pos2 {
+                        x: prev.x - cx,
+                        y: prev.y - cy,
+                    };
+                    prev = result;
+                    transpose(result, to, from)
+                })
+                .collect(),
+        );
+        grouped_processes
+            .iter() //we add 90 here as we assume the robot is facing upwards (90 degrees)
+            .map(|(angle, distance)| [Process::Turn(*angle + 90), Process::Drive(distance.abs())])
+            .collect::<Vec<[Process; 2]>>()
+            .as_slice()
+            .concat()
+    }
+    fn generate(processes: &Vec<Process>) -> String {
+        let mut result = String::from("// The following code was generated by Pathy:");
+        processes.iter().for_each(|process| match *process {
+            Process::Turn(angle) => result.push_str(
+                format!(
+                    "\nchassis.set_turn_pid({}, TURN_SPEED)\nchassis.wait_drive();",
+                    angle
+                )
+                .as_str(),
+            ),
+            Process::Drive(distance) => result.push_str(
+                format!(
+                    "\nchassis.set_drive_pid({}, DRIVE_SPEED)\nchassis.wait_drive();",
+                    distance
+                )
+                .as_str(),
+            ),
+        });
+        result
+    }
 }
 
-impl eframe::App for TemplateApp {
+impl eframe::App for PathyApp {
     /// Called by the frame work to save state before shutdown.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, self);
@@ -71,6 +217,9 @@ impl eframe::App for TemplateApp {
             mode,
             path,
             selected,
+            overlay,
+            result,
+            processed,
         } = self;
 
         // Examples of how to create different panels and windows.
@@ -93,6 +242,7 @@ impl eframe::App for TemplateApp {
         egui::SidePanel::left("side_panel").show(ctx, |ui| {
             ui.heading("Settings");
 
+            // Size settings
             let response = ui.add_enabled_ui(path.len() == 0, |ui| {
                 ui.label("Field Dimensions:");
                 ui.horizontal(|ui| {
@@ -111,6 +261,7 @@ impl eframe::App for TemplateApp {
                 );
             }
 
+            // Notice
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
@@ -153,12 +304,21 @@ impl eframe::App for TemplateApp {
                 if ui.button("Delete").clicked() {
                     *mode = CursorMode::Delete;
                 }
+                if ui.button("Trim").clicked() {
+                    *mode = CursorMode::Trim;
+                }
                 if ui.button("Clear").clicked() {
                     *path = Vec::new(); // Clear path
+                }
+                if ui.button("Preprocess").clicked() {
+                    *processed = Self::preprocess(path, (*scale, aspecty), (*width, *height));
                 }
                 // Order here is important, as the ui button is only rendered if the first
                 // condition is true. Otherwise, there's no point in evaluating the second
                 // condition, thus not rendering the button.
+                if processed.len() != 0 && ui.button("Generate").clicked() {
+                    *result = Some(Self::generate(processed));
+                }
                 if *mode != CursorMode::Default && ui.button("Finish").clicked() {
                     *mode = CursorMode::Default;
                 }
@@ -185,8 +345,8 @@ impl eframe::App for TemplateApp {
                 width: 3.0,
                 color: Color32::YELLOW,
             };
-            // Render all points and lines
-            path.iter().enumerate().for_each(|(idx, pos)| {
+            // Render all lines
+            path.iter().for_each(|pos| {
                 let screen_pos = Pos2 {
                     x: response.rect.min.x + pos.x,
                     y: response.rect.min.y + pos.y,
@@ -200,9 +360,18 @@ impl eframe::App for TemplateApp {
                     None => (),
                 };
                 prev = Some(screen_pos);
+            });
+            // Render all points
+            path.iter().enumerate().for_each(|(idx, pos)| {
+                let screen_pos = Pos2 {
+                    x: response.rect.min.x + pos.x,
+                    y: response.rect.min.y + pos.y,
+                };
                 // Render points
                 if idx == 0 {
                     ui.painter().circle_filled(screen_pos, 5.0, Color32::GREEN);
+                } else if idx == path.len() - 1 {
+                    ui.painter().circle_filled(screen_pos, 5.0, Color32::BLUE);
                 } else {
                     ui.painter().circle_filled(screen_pos, 5.0, Color32::YELLOW);
                 }
@@ -231,12 +400,13 @@ impl eframe::App for TemplateApp {
                         None => (),
                     }
                 }
-                CursorMode::Edit | CursorMode::Delete => {
+                CursorMode::Edit | CursorMode::Delete | CursorMode::Trim => {
                     // Get pointer position
                     match hovered {
                         Some(hover_pos) => {
-                            // Find the nearest point, using weird but generally more effecient
-                            // algorithm.
+                            // Find the nearest point. We just add the x and y differences without
+                            // squaring them, since we don't need the actual distance, just
+                            // something we can compare (and works 99% of the time).
                             let mut distance = f32::MAX;
                             hovered = Some(path.iter().enumerate().fold(
                                 hover_pos,
@@ -281,13 +451,17 @@ impl eframe::App for TemplateApp {
                     },
                     // Delete cursor position (slices vector)
                     CursorMode::Delete => match sl_idx {
-                        Some(idx) => drop(path.drain(idx..)), // Deletes the elements
+                        Some(idx) => drop(path.remove(idx)), // Deletes the elements
+                        None => (),
+                    },
+                    CursorMode::Trim => match sl_idx {
+                        Some(idx) => drop(path.drain(idx..)), // Deletes elements from idx
                         None => (),
                     },
                 }
             }
             // Handle drags - Edit mode only
-            if *mode == CursorMode::Edit {
+            if *mode == CursorMode::Edit && path.len() > 0 {
                 // Set selected at drag start
                 if response.drag_started() {
                     // Drag started, set current index as selected.
@@ -312,5 +486,16 @@ impl eframe::App for TemplateApp {
                 }
             }
         });
+
+        match result {
+            Some(code) => {
+                egui::Window::new("Generated Code").show(ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        ui.code_editor(code);
+                    });
+                });
+            }
+            None => (),
+        }
     }
 }
