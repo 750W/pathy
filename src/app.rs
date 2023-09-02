@@ -131,6 +131,7 @@ impl eframe::App for TemplateApp {
             // in the correct aspect ratio
             let aspecty: f32 = (*height / *width) * *scale;
             ui.heading("Path Designer");
+            // UI Buttons
             ui.horizontal(|ui| {
                 if ui.button("Save").clicked() {
                     *mode = CursorMode::Default;
@@ -162,7 +163,7 @@ impl eframe::App for TemplateApp {
                     x: *scale,
                     y: aspecty,
                 },
-                Sense::click(),
+                Sense::click_and_drag(),
             );
             ui.painter().rect(
                 rect,
@@ -170,16 +171,90 @@ impl eframe::App for TemplateApp {
                 Color32::from_gray(64),
                 Stroke::new(5.0, Color32::WHITE),
             );
+            // Variable we'll use to render lines
+            let mut prev: Option<Pos2> = None;
+            // Line stroke
+            let yellow_line = Stroke {
+                width: 3.0,
+                color: Color32::YELLOW,
+            };
+            // Render all points
+            path.iter().for_each(|pos| {
+                let screen_pos = Pos2 {
+                    x: response.rect.min.x + pos.x,
+                    y: response.rect.min.y + pos.y,
+                };
+                ui.painter().circle_filled(screen_pos, 5.0, Color32::YELLOW);
+                match prev {
+                    Some(prev_pos) => {
+                        ui.painter()
+                            .line_segment([prev_pos, screen_pos], yellow_line);
+                    }
+                    None => (),
+                };
+                prev = Some(screen_pos);
+            });
+            // Hovered point, Edit and Delete will actually set this to be the closest point.
+            let mut hovered = response.hover_pos();
+            // Index of selected point of path (used by edit & delete)
+            let mut sl_idx: Option<usize> = None;
             // Render the create tooltip
             // Might change to a case later
-            if *mode == CursorMode::Create {
-                // Get pointer position
-                match ctx.pointer_hover_pos() {
-                    // Put circle under cursor
-                    Some(pos) => ui.painter().circle_filled(pos, 5.0, Color32::YELLOW),
-                    None => (),
+            match *mode {
+                CursorMode::Default => (), // No tooltip
+                CursorMode::Create => {
+                    // Get pointer position
+                    match hovered {
+                        // Put circle under cursor
+                        Some(pos) => {
+                            ui.painter().circle_filled(pos, 5.0, Color32::YELLOW);
+                            // Render line preview
+                            match prev {
+                                Some(prev_pos) => {
+                                    ui.painter().line_segment([prev_pos, pos], yellow_line)
+                                }
+                                None => (),
+                            }
+                        }
+                        None => (),
+                    }
+                }
+                CursorMode::Edit | CursorMode::Delete => {
+                    // Get pointer position
+                    match hovered {
+                        Some(hover_pos) => {
+                            // Find the nearest point, using weird but generally more effecient
+                            // algorithm.
+                            let mut distance = f32::MAX;
+                            hovered = Some(path.iter().enumerate().fold(
+                                hover_pos,
+                                |old_pos, (idx, pos)| {
+                                    let screen_pos = Pos2 {
+                                        x: response.rect.min.x + pos.x,
+                                        y: response.rect.min.y + pos.y,
+                                    };
+                                    let dis = f32::abs(hover_pos.x - screen_pos.x)
+                                        + f32::abs(hover_pos.y - screen_pos.y);
+                                    if dis < distance {
+                                        distance = dis;
+                                        sl_idx = Some(idx);
+                                        return screen_pos;
+                                    }
+                                    old_pos
+                                },
+                            ));
+                            // Render closest point red
+                            ui.painter()
+                                .circle_filled(hovered.unwrap(), 5.1, Color32::RED);
+                        }
+                        None => (),
+                    }
                 }
             }
+            // Handle clicks
+            // I'd like to do this first, so there's no frame delay, but it's a little more
+            // idiomatic for me to do it this way, since we can now use a match statement above
+            // (since both Edit and Delete modes use the nearest point calculated for the tooltip).
             if response.clicked() {
                 match mode {
                     // Do nothing
@@ -196,28 +271,6 @@ impl eframe::App for TemplateApp {
                     CursorMode::Delete => (),
                 }
             }
-            let mut prev: Option<Pos2> = None;
-            // Render all points
-            path.iter().for_each(|pos| {
-                let abs_pos = Pos2 {
-                    x: response.rect.min.x + pos.x,
-                    y: response.rect.min.y + pos.y,
-                };
-                ui.painter().circle_filled(abs_pos, 5.0, Color32::YELLOW);
-                match prev {
-                    Some(prev_pos) => {
-                        ui.painter().line_segment(
-                            [prev_pos, abs_pos],
-                            Stroke {
-                                width: 3.0,
-                                color: Color32::YELLOW,
-                            },
-                        );
-                    }
-                    None => (),
-                };
-                prev = Some(abs_pos);
-            });
         });
     }
 }
