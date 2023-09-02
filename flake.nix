@@ -17,7 +17,7 @@
           # Additional dev-shell environment variables can be set directly
           # MY_CUSTOM_DEVELOPMENT_VAR = "something else";
 
-          nativeBuildInputs = [
+          nativeBuildInputs = with pkgs; [
             trunk
           ];
         };

@@ -1,21 +1,36 @@
+use eframe::egui::Visuals;
+use egui::{Color32, Pos2, Sense, Stroke, Vec2};
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct TemplateApp {
-    // Example stuff:
-    label: String,
-
     // this how you opt-out of serialization of a member
-    #[serde(skip)]
-    value: f32,
+    //#[serde(skip)]
+    height: f32,
+    width: f32,
+    scale: f32,
+    mode: CursorMode,
+    path: Vec<Pos2>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Eq, PartialEq)]
+enum CursorMode {
+    // Represent possible cursor modes
+    Default, // No action
+    Create,  // Create new nodes and paths
+    Edit,    // Edit the positioning of points
+    Delete,  // Delete points (whilst still keeping only one path).
 }
 
 impl Default for TemplateApp {
     fn default() -> Self {
         Self {
             // Example stuff:
-            label: "Hello World!".to_owned(),
-            value: 2.7,
+            height: 1776.9,
+            width: 1475.3,
+            scale: 600.0,
+            mode: CursorMode::Default,
+            path: Vec::new(),
         }
     }
 }
@@ -45,7 +60,15 @@ impl eframe::App for TemplateApp {
     /// Called each time the UI needs repainting, which may be many times per second.
     /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let Self { label, value } = self;
+        // Dark mode
+        ctx.set_visuals(Visuals::dark());
+        let Self {
+            height,
+            width,
+            scale,
+            mode,
+            path,
+        } = self;
 
         // Examples of how to create different panels and windows.
         // Pick whichever suits you.
@@ -65,17 +88,18 @@ impl eframe::App for TemplateApp {
         });
 
         egui::SidePanel::left("side_panel").show(ctx, |ui| {
-            ui.heading("Side Panel");
+            ui.heading("Settings");
 
+            ui.label("Field Dimensions:");
             ui.horizontal(|ui| {
-                ui.label("Write something: ");
-                ui.text_edit_singleline(label);
+                ui.add(egui::DragValue::new(height));
+                ui.label("Height (Inches)")
             });
-
-            ui.add(egui::Slider::new(value, 0.0..=10.0).text("value"));
-            if ui.button("Increment").clicked() {
-                *value += 1.0;
-            }
+            ui.horizontal(|ui| {
+                ui.add(egui::DragValue::new(width));
+                ui.label("Width (Inches)")
+            });
+            ui.add(egui::Slider::new(scale, 0.0..=1000.0).text("Scale"));
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 ui.horizontal(|ui| {
@@ -95,22 +119,105 @@ impl eframe::App for TemplateApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanel's and SidePanel's
 
-            ui.heading("eframe template");
-            ui.hyperlink("https://github.com/emilk/eframe_template");
-            ui.add(egui::github_link_file!(
-                "https://github.com/emilk/eframe_template/blob/master/",
-                "Source code."
-            ));
+            ui.heading("Pathy");
+            ui.label("Created by Daksh Gupta.");
+            ui.label("Made for use in auton code. Generated code uses the EZTemplate API.");
             egui::warn_if_debug_build(ui);
         });
 
-        if false {
-            egui::Window::new("Window").show(ctx, |ui| {
-                ui.label("Windows can be moved by dragging them.");
-                ui.label("They are automatically sized based on contents.");
-                ui.label("You can turn on resizing and scrolling if you like.");
-                ui.label("You would normally choose either panels OR windows.");
+        // Path Designer
+        egui::Window::new("Path Designer").show(ctx, |ui| {
+            // If the width is scale, find the height that keeps it
+            // in the correct aspect ratio
+            let aspecty: f32 = (*height / *width) * *scale;
+            ui.heading("Path Designer");
+            ui.horizontal(|ui| {
+                if ui.button("Save").clicked() {
+                    *mode = CursorMode::Default;
+                    println!("Not yet implemented")
+                }
+                if ui.button("Create Path").clicked() {
+                    *mode = CursorMode::Create;
+                }
+                if ui.button("Edit Points").clicked() {
+                    *mode = CursorMode::Edit;
+                }
+                if ui.button("Delete Points").clicked() {
+                    *mode = CursorMode::Delete;
+                }
+                if ui.button("Clear Paths").clicked() {
+                    *path = Vec::new(); // Clear path
+                }
+                // Order here is important, as the ui button is only rendered if the first
+                // condition is true. Otherwise, there's no point in evaluating the second
+                // condition, thus not rendering the button.
+                if *mode != CursorMode::Default && ui.button("Finish").clicked() {
+                    *mode = CursorMode::Default;
+                }
             });
-        }
+            ui.add_space(10.0);
+            // Render the bounds
+            let (rect, response) = ui.allocate_at_least(
+                Vec2 {
+                    x: *scale,
+                    y: aspecty,
+                },
+                Sense::click(),
+            );
+            ui.painter().rect(
+                rect,
+                0.0,
+                Color32::from_gray(64),
+                Stroke::new(5.0, Color32::WHITE),
+            );
+            // Render the create tooltip
+            // Might change to a case later
+            if *mode == CursorMode::Create {
+                // Get pointer position
+                match ctx.pointer_hover_pos() {
+                    // Put circle under cursor
+                    Some(pos) => ui.painter().circle_filled(pos, 5.0, Color32::YELLOW),
+                    None => (),
+                }
+            }
+            if response.clicked() {
+                match mode {
+                    // Do nothing
+                    CursorMode::Default => (),
+                    // Add cursor position to list
+                    CursorMode::Create => match ctx.pointer_interact_pos() {
+                        Some(pos) => path.push(Pos2 {
+                            x: pos.x - response.rect.min.x,
+                            y: pos.y - response.rect.min.y,
+                        }),
+                        None => (),
+                    },
+                    CursorMode::Edit => (),
+                    CursorMode::Delete => (),
+                }
+            }
+            let mut prev: Option<Pos2> = None;
+            // Render all points
+            path.iter().for_each(|pos| {
+                let abs_pos = Pos2 {
+                    x: response.rect.min.x + pos.x,
+                    y: response.rect.min.y + pos.y,
+                };
+                ui.painter().circle_filled(abs_pos, 5.0, Color32::YELLOW);
+                match prev {
+                    Some(prev_pos) => {
+                        ui.painter().line_segment(
+                            [prev_pos, abs_pos],
+                            Stroke {
+                                width: 3.0,
+                                color: Color32::YELLOW,
+                            },
+                        );
+                    }
+                    None => (),
+                };
+                prev = Some(abs_pos);
+            });
+        });
     }
 }
