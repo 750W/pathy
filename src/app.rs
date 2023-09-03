@@ -262,6 +262,7 @@ impl eframe::App for PathyApp {
                     "Size settings may not be changed once you've created a path.",
                 );
             }
+            ui.label("Upload an image to set an overlay!");
 
             // Notice
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
@@ -293,10 +294,6 @@ impl eframe::App for PathyApp {
             ui.heading("Path Designer");
             // UI Buttons
             ui.horizontal(|ui| {
-                if ui.button("Save").clicked() {
-                    *mode = CursorMode::Default;
-                    println!("Not yet implemented")
-                }
                 if ui.button("Create").clicked() {
                     *mode = CursorMode::Create;
                     // Reset processes
@@ -317,6 +314,7 @@ impl eframe::App for PathyApp {
                 if ui.button("Clear").clicked() {
                     *path = Vec::new(); // Clear path
                     *processed = Vec::new();
+                    *result = None;
                 }
                 if ui.button("Preprocess").clicked() {
                     *processed = Self::preprocess(path, (*scale, aspecty), (*width, *height));
