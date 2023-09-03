@@ -50,5 +50,3 @@ We use [Trunk](https://trunkrs.dev/) to build for web target.
 > To enable Github Pages, you need to go to Repository -> Settings -> Pages -> Source -> set to `gh-pages` branch and `/` (root).
 >
 > If `gh-pages` is not available in `Source`, just create and push a branch called `gh-pages` and it should be available.
-
-You can test the template app at <https://emilk.github.io/eframe_template/>.
