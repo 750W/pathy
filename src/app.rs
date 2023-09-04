@@ -1,6 +1,32 @@
 use egui::Pos2;
 use egui_extras::RetainedImage;
+// Uncomment this section to get access to the console_log macro
+// Use console_log to print things to console. println macro doesn't work
+// here, so you'll need it.
+/*use wasm_bindgen::prelude::*;
+#[wasm_bindgen]
+extern "C" {
+    // Use `js_namespace` here to bind `console.log(..)` instead of just
+    // `log(..)`
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
 
+    // The `console.log` is quite polymorphic, so we can bind it with multiple
+    // signatures. Note that we need to use `js_name` to ensure we always call
+    // `log` in JS.
+    #[wasm_bindgen(js_namespace = console, js_name = log)]
+    fn log_u32(a: u32);
+
+    // Multiple arguments too!
+    #[wasm_bindgen(js_namespace = console, js_name = log)]
+    fn log_many(a: &str, b: &str);
+}
+macro_rules! console_log {
+    // Note that this is using the `log` function imported above during
+    // `bare_bones`
+    ($($t:tt)*) => (log(&format_args!($($t)*).to_string()))
+}
+// */
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct PathyApp {
@@ -185,17 +211,22 @@ impl PathyApp {
                 let mut distance: f32 =
                 //    f32::sqrt((pos.x - prev.x).powi(2) + (pos.x - prev.x).powi(2)).round() as i32;
                     cx / angle.to_radians().cos();
-                if (-1.0..=1.0).contains(&angle) {
-                    // It's basically straight
-                    angle = 0.0;
-                }
+                let mut complex_angle = ComplexAngle::new(-angle.round() as i32, pos.x >= prev.x);
                 if cx == 0.0 {
                     // Things get buggy with 1/0, manual override
+                    if cy.is_sign_positive() {
+                        complex_angle.angle = 90;
+                    } else {
+                        complex_angle.angle = -90;
+                    }
                     angle = 90.0;
                     distance = cy;
                 }
-                let complex_angle = ComplexAngle::new(-angle.round() as i32, pos.x >= prev.x);
-                let turn: i32 = prev_angle.calculate_turn(&complex_angle);
+                let mut turn: i32 = prev_angle.calculate_turn(&complex_angle);
+                if (-1..=1).contains(&turn) {
+                    // It's basically straight
+                    turn = 0;
+                }
                 prev = *pos;
                 prev_angle = complex_angle;
                 (angle.round() as i32, distance.round() as i32, turn)
@@ -240,7 +271,7 @@ impl PathyApp {
                     // avoid unneccessary turns
                     result.push_str(
                         format!(
-                            "\nchassis.set_turn_pid({}, TURN_SPEED)\nchassis.wait_drive();",
+                            "\nchassis.set_turn_pid({}, TURN_SPEED);\nchassis.wait_drive();",
                             angle
                         )
                         .as_str(),
@@ -249,7 +280,7 @@ impl PathyApp {
             }
             Process::Drive(distance) => result.push_str(
                 format!(
-                    "\nchassis.set_drive_pid({}, DRIVE_SPEED)\nchassis.wait_drive();",
+                    "\nchassis.set_drive_pid({}, DRIVE_SPEED);\nchassis.wait_drive();",
                     distance
                 )
                 .as_str(),

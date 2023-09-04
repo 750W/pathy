@@ -10,33 +10,6 @@ use crate::app::*;
 use eframe::egui::Visuals;
 use egui::{pos2, Color32, Pos2, Rect, Sense, Stroke, Vec2};
 use egui_extras::RetainedImage;
-// Uncomment this section to get access to the console_log macro
-// Use console_log to print things to console. println macro doesn't work
-// here, so you'll need it.
-/*use wasm_bindgen::prelude::*;
-#[wasm_bindgen]
-extern "C" {
-    // Use `js_namespace` here to bind `console.log(..)` instead of just
-    // `log(..)`
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-
-    // The `console.log` is quite polymorphic, so we can bind it with multiple
-    // signatures. Note that we need to use `js_name` to ensure we always call
-    // `log` in JS.
-    #[wasm_bindgen(js_namespace = console, js_name = log)]
-    fn log_u32(a: u32);
-
-    // Multiple arguments too!
-    #[wasm_bindgen(js_namespace = console, js_name = log)]
-    fn log_many(a: &str, b: &str);
-}
-macro_rules! console_log {
-    // Note that this is using the `log` function imported above during
-    // `bare_bones`
-    ($($t:tt)*) => (log(&format_args!($($t)*).to_string()))
-}
-// */
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 
 impl eframe::App for PathyApp {
@@ -149,7 +122,8 @@ impl eframe::App for PathyApp {
                     *processed = Vec::new();
                     *result = None;
                 }
-                if ui.button("Preprocess").clicked() {
+                // Both an "optimization" and a hacky workaround (see https://github.com/750W/pathy/issues/1)
+                if processed.is_empty() && ui.button("Preprocess").clicked() {
                     *processed = Self::preprocess(path, (*scale, aspecty), (*width, *height));
                 }
                 // Order here is important, as the ui button is only rendered if the first
