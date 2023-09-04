@@ -48,7 +48,7 @@ pub struct PathyApp {
     path: Vec<Pos2>,         // Current path
     selected: usize,         // Current selected node (edit mode)
     processed: Vec<Process>, // Processed fields
-    #[serde(skip)]
+    #[serde(skip)] // We can't serialize and image; and we don't want to
     overlay: Option<RetainedImage>, // Uploaded overlay
     result: Option<String>,  // Final string
 }
@@ -70,6 +70,18 @@ enum Process {
     Turn(i32),
 }
 
+/// ComplexAngle represents turns relative to lines
+struct ComplexAngle {
+    angle: i32,
+    direction: AngleDirection,
+}
+/// Represents an Increasing or Decreasing angle
+#[derive(PartialEq, Eq)]
+enum AngleDirection {
+    Increasing,
+    Decreasing,
+}
+
 /// Transpose from one dimension to another, with the same aspect ratio
 fn transpose(pos: Pos2, from: (f32, f32), to: (f32, f32)) -> Pos2 {
     // We assume the aspect ratio is the same
@@ -78,6 +90,59 @@ fn transpose(pos: Pos2, from: (f32, f32), to: (f32, f32)) -> Pos2 {
     Pos2 {
         x: (pos.x / from_w) * to_w,
         y: (pos.y / from_h) * to_h,
+    }
+}
+
+impl From<bool> for AngleDirection {
+    /// Converts from a bool representing if x is increasing to an AngleDirection
+    fn from(value: bool) -> Self {
+        if value {
+            return Self::Increasing;
+        }
+        Self::Decreasing
+    }
+}
+
+impl ComplexAngle {
+    /// Construct a new complex angle with an angle and a boolean.
+    fn new(angle: i32, increasing: bool) -> Self {
+        // Limit the angle to a range of -90 to 90
+        let mut res_angle = Self::normalize(angle);
+        // Further limit range from -90 to 90
+        // Since these angles are still bidirectional, it's fine to add/subtract 180
+        if res_angle > 90 {
+            res_angle = res_angle - 180;
+        } else if res_angle < -90 {
+            res_angle = res_angle + 180;
+        }
+        Self {
+            angle: res_angle,
+            direction: increasing.into(), // we already implement From<bool> for AngleDirection
+        }
+    }
+
+    /// Normalizes an angle for more effecient turns. Sets the range of the angle from -180 to 180.
+    fn normalize(angle: i32) -> i32 {
+        // If angle is greater than 180, subtract 360
+        if angle > 180 {
+            return angle - 360;
+        }
+        if angle < -180 {
+            return angle + 360;
+        }
+        // Otherwise, we're fine
+        angle
+    }
+
+    /// Calculates a turn from self to supplied angle
+    fn calculate_turn(&self, angle: &Self) -> i32 {
+        // If direction's the same, subtract the angles
+        if self.direction == angle.direction {
+            return self.angle - angle.angle;
+        }
+        // If directions differ, subtract 180 from the result
+        // And we normalize the angle for good measure
+        return Self::normalize((self.angle - angle.angle) - 180);
     }
 }
 
@@ -113,6 +178,7 @@ impl PathyApp {
 
         Default::default()
     }
+    /// Preprocess the route to round all integers
     fn preprocess(path: &mut Vec<Pos2>, from: (f32, f32), to: (f32, f32)) -> Vec<Process> {
         /* To create the optimal route, we don't want to rely on somewhat imprecise and arbitrary
          * integers. Hence, all distances are rounded to the nearest inch. We also use the slope to
@@ -134,23 +200,40 @@ impl PathyApp {
         let start: Pos2 = path[0];
         // Store the previous point
         let mut prev = path.remove(0);
-        let grouped_processes: Vec<(i32, i32)> = path
+        // Store the previous angle
+        let mut prev_angle = ComplexAngle::new(90, true); // We start facing "up"
+        let grouped_processes: Vec<(i32, i32, i32)> = path
             .iter()
             .map(|pos| {
                 // Lets calculate the angle first.
                 // First, we'll calculate the slope.
-                // The slope is rise/run, and if we draw a triangle then we'll be able to see that it's
+                // The slope is rise/run, and if we draw a triangle then we'll be able to see that it's // We can't serialize and image; and we don't want to
                 // also the tangent of the angle a. Therefore, we'll just take the arc-tangent and round it
                 // off.
-                let slope = (prev.y - pos.y) / (prev.x - pos.x); // Inverse since we're going from
-                                                                 // TL origin to BL origin
-                let angle: f32 = slope.atan().to_degrees();
+                let cx = prev.x - pos.x;
+                let cy = prev.y - pos.y;
+                let slope = cy / cx; // Inverse since we're going from
+                                     // TL origin to BL origin
+                let mut angle: f32 = slope.atan().to_degrees();
+                // Make complex angle - we check using >= since 90 degree angles are increasing
                 // Distance is just pythagorean thm, and we just round it.
-                let distance: f32 =
+                let mut distance: f32 =
                 //    f32::sqrt((pos.x - prev.x).powi(2) + (pos.x - prev.x).powi(2)).round() as i32;
-                    (prev.x - pos.x) / angle.to_radians().cos();
+                    cx / angle.to_radians().cos();
+                if angle <= 1.0 && angle >= -1.0 {
+                    // It's basically straight
+                    angle = 0.0;
+                }
+                if cx == 0.0 {
+                    // Things get buggy with 1/0, manual override
+                    angle = 90.0;
+                    distance = cy;
+                }
+                let complex_angle = ComplexAngle::new(-angle.round() as i32, pos.x >= prev.x);
+                let turn: i32 = prev_angle.calculate_turn(&complex_angle);
                 prev = *pos;
-                (angle.round() as i32, distance.round() as i32)
+                prev_angle = complex_angle;
+                (angle.round() as i32, distance.round() as i32, turn)
             })
             .collect();
         prev = start;
@@ -159,10 +242,15 @@ impl PathyApp {
         path.append(
             &mut grouped_processes
                 .iter()
-                .map(|(angle, distance)| {
+                .map(|(angle, distance, _)| {
                     // Calculate change in x
-                    let cx: f32 = (*angle as f32).to_radians().cos() * (*distance as f32);
-                    let cy: f32 = (*angle as f32).to_radians().sin() * (*distance as f32);
+                    let mut cx: f32 = (*angle as f32).to_radians().cos() * (*distance as f32);
+                    let mut cy: f32 = (*angle as f32).to_radians().sin() * (*distance as f32);
+                    // Fix buggy 1/0
+                    if *angle == 90 {
+                        cx = 0.0;
+                        cy = *distance as f32;
+                    }
                     let result = Pos2 {
                         x: prev.x - cx,
                         y: prev.y - cy,
@@ -173,8 +261,8 @@ impl PathyApp {
                 .collect(),
         );
         grouped_processes
-            .iter() //we add 90 here as we assume the robot is facing upwards (90 degrees)
-            .map(|(angle, distance)| [Process::Turn(*angle + 90), Process::Drive(distance.abs())])
+            .iter()
+            .map(|(_, distance, turn)| [Process::Turn(*turn), Process::Drive(distance.abs())])
             .collect::<Vec<[Process; 2]>>()
             .as_slice()
             .concat()
@@ -182,13 +270,18 @@ impl PathyApp {
     fn generate(processes: &Vec<Process>) -> String {
         let mut result = String::from("// The following code was generated by Pathy:");
         processes.iter().for_each(|process| match *process {
-            Process::Turn(angle) => result.push_str(
-                format!(
-                    "\nchassis.set_turn_pid({}, TURN_SPEED)\nchassis.wait_drive();",
-                    angle
-                )
-                .as_str(),
-            ),
+            Process::Turn(angle) => {
+                if angle != 0 {
+                    // avoid unneccessary turns
+                    result.push_str(
+                        format!(
+                            "\nchassis.set_turn_pid({}, TURN_SPEED)\nchassis.wait_drive();",
+                            angle
+                        )
+                        .as_str(),
+                    )
+                }
+            }
             Process::Drive(distance) => result.push_str(
                 format!(
                     "\nchassis.set_drive_pid({}, DRIVE_SPEED)\nchassis.wait_drive();",
@@ -224,11 +317,6 @@ impl eframe::App for PathyApp {
             processed,
         } = self;
 
-        // Examples of how to create different panels and windows.
-        // Pick whichever suits you.
-        // Tip: a good default choice is to just keep the `CentralPanel`.
-        // For inspiration and more examples, go to https://emilk.github.io/egui
-
         #[cfg(not(target_arch = "wasm32"))] // no File->Quit on web pages!
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             // The top panel is often a good place for a menu bar:
@@ -262,7 +350,7 @@ impl eframe::App for PathyApp {
                     "Size settings may not be changed once you've created a path.",
                 );
             }
-            ui.label("Upload an image to set an overlay!");
+            ui.label("Drop an image to set an overlay!");
 
             // Notice
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
