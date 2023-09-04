@@ -1,16 +1,10 @@
 name: Github Pages
 
-# Runs whenever we release a new semantically versioned tag.
-on:
-  push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
 
-# to only run when you do a new github release, comment out above part and uncomment the below trigger.
-# on:
-#   release:
-#     types:
-#       - published
+on:
+ release:
+   types:
+     - published
 
 permissions:
   contents: write # for committing to gh-pages branch.
