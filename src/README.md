@@ -13,3 +13,13 @@ Of course, the "magic" is in the pre-processing and generation steps. The pre-pr
 
 ### The Distance
 The distance is just calculated using the cosine of the angle. However, since the angle can sometimes be 90 degrees, this can occasionally bug out. Therefore, we have an additional check to prevent issues with divide by zero, as the angle calculation itself uses the slope, and 90 degree angles result in a slope of `Δy/0`.
+
+### The Angle
+The angle is calculated as the arc-tangent of the slope. This is fine, until you realize that we're actually lacking information here; slope doesn't tell us if we're turning to the *left* or to the *right*, which means we don't know how to turn the robot. Therfore, we've implemented a `ComplexAngle` type, which encodes both the angle of the line, and whether the x value is increasing or decreasing(going right or left). 
+
+The `ComplexAngle` has it's accompanying `AngleDirection` type, which lets us know which way the angle is "facing". We can use this information along with the previous `ComplexAngle`'s information to calculate how much the robot will need to turn.
+
+# Contributing
+Contributing is pretty simple. Test the feature, make sure it works. Try to use commit names as per the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) standard, and before you push check your code with `clippy` (by running `cargo clippy -- -D warnings`).
+
+**Do not push directly to the main branch.** Instead, create a feature branch, say `feature-add-5d-support`, and then open a PR(pull request) to merge it into main. This way, we'll be able to review any changes and CI will be able to automatically tell us if the code is ready to merge.
