@@ -78,7 +78,7 @@ impl eframe::App for PathyApp {
             ui.heading("Settings");
 
             // Size settings
-            let response = ui.add_enabled_ui(path.len() == 0, |ui| {
+            let response = ui.add_enabled_ui(path.is_empty(), |ui| {
                 ui.label("Field Dimensions:");
                 ui.horizontal(|ui| {
                     ui.add(egui::DragValue::new(height));
@@ -90,7 +90,7 @@ impl eframe::App for PathyApp {
                 });
                 ui.add(egui::Slider::new(scale, 0.0..=1000.0).text("Scale"));
             });
-            if path.len() != 0 {
+            if !path.is_empty() {
                 response.response.on_hover_text_at_pointer(
                     "Size settings may not be changed once you've created a path.",
                 );
@@ -155,7 +155,7 @@ impl eframe::App for PathyApp {
                 // Order here is important, as the ui button is only rendered if the first
                 // condition is true. Otherwise, there's no point in evaluating the second
                 // condition, thus not rendering the button.
-                if processed.len() != 0 && ui.button("Generate").clicked() {
+                if !processed.is_empty() && ui.button("Generate").clicked() {
                     *result = Some(Self::generate(processed));
                 }
                 if *mode != CursorMode::Default && ui.button("Finish").clicked() {
@@ -178,15 +178,14 @@ impl eframe::App for PathyApp {
                 Stroke::new(5.0, Color32::WHITE),
             );
             // Check for dropped files
-            ctx.input(|i| match i.raw.dropped_files.last() {
-                Some(file) => match file.clone().bytes {
-                    Some(bytes) => match RetainedImage::from_image_bytes("", &*bytes) {
-                        Ok(image) => *overlay = Some(image),
-                        Err(_) => (),
-                    },
-                    None => (),
-                },
-                None => (),
+            ctx.input(|i| {
+                if let Some(file) = i.raw.dropped_files.last() {
+                    if let Some(bytes) = file.clone().bytes {
+                        if let Ok(image) = RetainedImage::from_image_bytes("", &bytes) {
+                            *overlay = Some(image);
+                        }
+                    }
+                }
             });
             // Render image
             match overlay {
@@ -215,12 +214,9 @@ impl eframe::App for PathyApp {
                     y: response.rect.min.y + pos.y,
                 };
                 // Render lines
-                match prev {
-                    Some(prev_pos) => {
-                        ui.painter()
-                            .line_segment([prev_pos, screen_pos], yellow_line);
-                    }
-                    None => (),
+                if let Some(prev_pos) = prev {
+                    ui.painter()
+                        .line_segment([prev_pos, screen_pos], yellow_line);
                 };
                 prev = Some(screen_pos);
             });
@@ -248,51 +244,42 @@ impl eframe::App for PathyApp {
                 CursorMode::Default => (), // No tooltip
                 CursorMode::Create => {
                     // Get pointer position
-                    match hovered {
+                    if let Some(pos) = hovered {
                         // Put circle under cursor
-                        Some(pos) => {
-                            ui.painter().circle_filled(pos, 5.0, Color32::YELLOW);
-                            // Render line preview
-                            match prev {
-                                Some(prev_pos) => {
-                                    ui.painter().line_segment([prev_pos, pos], yellow_line)
-                                }
-                                None => (),
-                            }
+                        ui.painter().circle_filled(pos, 5.0, Color32::YELLOW);
+                        // Render line preview
+                        if let Some(prev_pos) = prev {
+                            ui.painter().line_segment([prev_pos, pos], yellow_line);
                         }
-                        None => (),
                     }
                 }
                 CursorMode::Edit | CursorMode::Delete | CursorMode::Trim => {
                     // Get pointer position
-                    match hovered {
-                        Some(hover_pos) => {
-                            // Find the nearest point. We just add the x and y differences without
-                            // squaring them, since we don't need the actual distance, just
-                            // something we can compare (and works 99% of the time).
-                            let mut distance = f32::MAX;
-                            hovered = Some(path.iter().enumerate().fold(
-                                hover_pos,
-                                |old_pos, (idx, pos)| {
-                                    let screen_pos = Pos2 {
-                                        x: response.rect.min.x + pos.x,
-                                        y: response.rect.min.y + pos.y,
-                                    };
-                                    let dis = f32::abs(hover_pos.x - screen_pos.x)
-                                        + f32::abs(hover_pos.y - screen_pos.y);
-                                    if dis < distance {
-                                        distance = dis;
-                                        sl_idx = Some(idx);
-                                        return screen_pos;
-                                    }
-                                    old_pos
-                                },
-                            ));
-                            // Render closest point red
-                            ui.painter()
-                                .circle_filled(hovered.unwrap(), 5.1, Color32::RED);
-                        }
-                        None => (),
+                    if let Some(hover_pos) = hovered {
+                        // Find the nearest point. We just add the x and y differences without
+                        // squaring them, since we don't need the actual distance, just
+                        // something we can compare (and works 99% of the time).
+                        let mut distance = f32::MAX;
+                        hovered = Some(path.iter().enumerate().fold(
+                            hover_pos,
+                            |old_pos, (idx, pos)| {
+                                let screen_pos = Pos2 {
+                                    x: response.rect.min.x + pos.x,
+                                    y: response.rect.min.y + pos.y,
+                                };
+                                let dis = f32::abs(hover_pos.x - screen_pos.x)
+                                    + f32::abs(hover_pos.y - screen_pos.y);
+                                if dis < distance {
+                                    distance = dis;
+                                    sl_idx = Some(idx);
+                                    return screen_pos;
+                                }
+                                old_pos
+                            },
+                        ));
+                        // Render closest point red
+                        ui.painter()
+                            .circle_filled(hovered.unwrap(), 5.1, Color32::RED);
                     }
                 }
             }
@@ -305,46 +292,45 @@ impl eframe::App for PathyApp {
                     // Default does nothing, and Edit uses drags
                     CursorMode::Default | CursorMode::Edit => (),
                     // Add cursor position to list
-                    CursorMode::Create => match ctx.pointer_interact_pos() {
-                        Some(pos) => path.push(Pos2 {
-                            x: pos.x - response.rect.min.x,
-                            y: pos.y - response.rect.min.y,
-                        }),
-                        None => (),
-                    },
+                    CursorMode::Create => {
+                        if let Some(pos) = ctx.pointer_interact_pos() {
+                            path.push(Pos2 {
+                                x: pos.x - response.rect.min.x,
+                                y: pos.y - response.rect.min.y,
+                            });
+                        }
+                    }
                     // Delete cursor position (slices vector)
-                    CursorMode::Delete => match sl_idx {
-                        Some(idx) => drop(path.remove(idx)), // Deletes the elements
-                        None => (),
-                    },
-                    CursorMode::Trim => match sl_idx {
-                        Some(idx) => drop(path.drain(idx..)), // Deletes elements from idx
-                        None => (),
-                    },
+                    CursorMode::Delete => {
+                        if let Some(idx) = sl_idx {
+                            path.remove(idx); // Deletes the elements
+                        }
+                    }
+                    CursorMode::Trim => {
+                        if let Some(idx) = sl_idx {
+                            path.drain(idx..); // Deletes elements from idx
+                        }
+                    }
                 }
             }
             // Handle drags - Edit mode only
-            if *mode == CursorMode::Edit && path.len() > 0 {
+            if *mode == CursorMode::Edit && !path.is_empty() {
                 // Set selected at drag start
                 if response.drag_started() {
                     // Drag started, set current index as selected.
                     // This is to prevent, say, dragging over another point from stealing focus from
                     // the currently selected point.
-                    match sl_idx {
-                        Some(idx) => *selected = idx,
-                        None => (),
+                    if let Some(idx) = sl_idx {
+                        *selected = idx;
                     }
                 }
                 // Move the selected point
                 if response.dragged() {
-                    match ctx.pointer_interact_pos() {
-                        Some(pos) => {
-                            path[*selected] = Pos2 {
-                                x: pos.x - response.rect.min.x,
-                                y: pos.y - response.rect.min.y,
-                            }
+                    if let Some(pos) = ctx.pointer_interact_pos() {
+                        path[*selected] = Pos2 {
+                            x: pos.x - response.rect.min.x,
+                            y: pos.y - response.rect.min.y,
                         }
-                        None => (),
                     }
                 }
             }
