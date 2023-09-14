@@ -131,6 +131,7 @@ impl eframe::App for PathyApp {
                 // condition, thus not rendering the button.
                 if !processed.is_empty() && ui.button("Generate").clicked() {
                     *result = Some(Self::generate(processed));
+                    *mode = CursorMode::Default;
                 }
                 if *mode != CursorMode::Default && ui.button("Finish").clicked() {
                     *mode = CursorMode::Default;
