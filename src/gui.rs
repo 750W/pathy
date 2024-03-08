@@ -89,6 +89,7 @@ impl eframe::App for PathyApp {
             ui.heading("Pathy");
             ui.label("Created by Daksh Gupta.");
             ui.label("Made for use in auton code. Generated code uses the EZTemplate API.");
+            ui.label("Create a path to get started. Press Preprocess, then Generate, and let the magic happen!");
             egui::warn_if_debug_build(ui);
         });
 
