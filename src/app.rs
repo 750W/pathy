@@ -27,11 +27,14 @@ macro_rules! console_log {
     ($($t:tt)*) => (log(&format_args!($($t)*).to_string()))
 }
 // */
+
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
+/// A class containing the current state of Pathy.
 pub struct PathyApp {
-    // this how you opt-out of serialization of a member
-    //#[serde(skip)]
+    // This how you opt-out of serialization of a member
+    // #[serde(skip)]
+    // This will prevent said member from being saved
     pub height: f32,             // Height of field
     pub width: f32,              // Width of field
     pub scale: f32,              // Scale to display
@@ -45,8 +48,8 @@ pub struct PathyApp {
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Eq, PartialEq)]
+/// Represents possible Cursor modes
 pub enum CursorMode {
-    // Represent possible cursor modes
     Default, // No action
     Create,  // Create new nodes and paths
     Edit,    // Edit the positioning of points
@@ -55,8 +58,8 @@ pub enum CursorMode {
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
+/// Represents movements for the robot to take
 pub enum Process {
-    // Represents movements for the robot to take
     Drive(i32),
     Turn(i32),
 }
