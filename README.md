@@ -17,9 +17,11 @@ You'll probably want to paste the code into a function in your `autons.cpp`. It'
 
 ### Testing locally
 
-Make sure you are using the latest version of stable rust by running `rustup update`.
+Make sure you are using the latest version of stable rust by running `rustup update`. Additionally, make sure to install [`trunk`](https://trunkrs.dev).
 
-`cargo run --release`
+`cargo install --locked trunk`
+
+`trunk serve`
 
 On Linux you may need to first run:
 
