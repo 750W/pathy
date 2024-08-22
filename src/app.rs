@@ -120,8 +120,7 @@ impl ComplexAngle {
         // If angle is greater than 180, subtract 360
         if angle > 180 {
             return angle - 360;
-        }
-        if angle < -180 {
+        } else if angle < -180 {
             return angle + 360;
         }
         // Otherwise, we're fine
