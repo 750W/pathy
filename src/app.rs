@@ -1,3 +1,4 @@
+use crate::bezier::BezPoint;
 use egui::{lerp, pos2, Color32, Context, Pos2, Stroke, Ui, Vec2};
 use egui_extras::RetainedImage;
 use uuid::Uuid;
@@ -23,6 +24,7 @@ extern "C" {
     #[wasm_bindgen(js_namespace = console, js_name = log)]
     fn log_many(a: &str, b: &str);
 }
+
 macro_rules! console_log {
     // Note that this is using the `log` function imported above during
     // `bare_bones`
@@ -36,24 +38,6 @@ pub enum CursorMode {
     Create,
     Edit,
     Delete,
-}
-
-/// A Bezier point.
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct BezPoint {
-    pub x: f32,
-    pub y: f32,
-    pub cp1x: f32,
-    pub cp1y: f32,
-    pub cp2x: f32,
-    pub cp2y: f32,
-
-    // ID
-    id: Uuid,
-    // Hover states
-    p_hov: bool,
-    cp1_hov: bool,
-    cp2_hov: bool,
 }
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -72,117 +56,6 @@ pub struct PathyApp {
     pub overlay: Option<RetainedImage>,
     /// Bezier points
     pub points: Vec<BezPoint>,
-}
-
-impl BezPoint {
-    fn new(x: f32, y: f32, cp1x: f32, cp1y: f32, cp2x: f32, cp2y: f32) -> Self {
-        Self {
-            x,
-            y,
-            cp1x,
-            cp1y,
-            cp2x,
-            cp2y,
-            id: Uuid::new_v4(),
-            p_hov: false,
-            cp1_hov: false,
-            cp2_hov: false,
-        }
-    }
-    /// Draws the bezier point and handles, handling animations and hover states.
-    /// Returns whether or not the point is currently hovered.
-    fn draw(
-        &mut self,
-        ui: &mut Ui,
-        ctx: &Context,
-        ratio: f32,
-        origin: Pos2,
-        hover_pos: Option<Pos2>,
-    ) -> bool {
-        let r = 5.0; // point radius
-        let r_hov = 8.0; // hover radius
-
-        // Generate an id to keep track of point animations
-        let id = ui.make_persistent_id(self.id);
-        let p_id = id.with(0);
-        let cp1_id = id.with(1);
-        let cp2_id = id.with(2);
-
-        // Main point
-        let x = self.x * ratio + origin.x;
-        let y = self.y * ratio + origin.y;
-        // Control points
-        let cp1x = self.cp1x * ratio + origin.x;
-        let cp1y = self.cp1y * ratio + origin.y;
-        let cp2x = self.cp2x * ratio + origin.x;
-        let cp2y = self.cp2y * ratio + origin.y;
-
-        // Update hover states
-        self.p_hov = false;
-        self.cp1_hov = false;
-        self.cp2_hov = false;
-        let mut selected = false;
-        if let Some(hover_pos) = hover_pos {
-            let mut distances = [
-                (&mut self.cp1_hov, hover_pos.distance_sq(pos2(cp1x, cp1y))),
-                (&mut self.cp2_hov, hover_pos.distance_sq(pos2(cp2x, cp2y))),
-            ];
-            let mut point_dis = (&mut self.p_hov, hover_pos.distance_sq(pos2(x, y)));
-            let (hovered, min_distance) =
-                distances
-                    .iter_mut()
-                    .fold(&mut point_dis, |min, x| if x.1 < min.1 { x } else { min });
-            if *min_distance < r * r {
-                console_log!("Hovered!");
-                **hovered = true;
-                selected = true;
-                console_log!(
-                    "POINT: {}\nCONTROL POINT 1: {}\nCONTROL POINT 2: {}",
-                    self.p_hov,
-                    self.cp1_hov,
-                    self.cp2_hov
-                );
-            } else {
-                **hovered = false;
-            }
-        }
-
-        // Update point radii based on hover state
-        let p_r = lerp(r..=r_hov, ctx.animate_bool(p_id, self.p_hov));
-        let cp1_r = lerp(r..=r_hov, ctx.animate_bool(cp1_id, self.cp1_hov));
-        let cp2_r = lerp(r..=r_hov, ctx.animate_bool(cp2_id, self.cp2_hov));
-
-        // Offsets to prevent lines draw inside hollow control points
-        // Essentially just sine and cosine of the angle
-        let dx1 = cp1x - x;
-        let dy1 = cp1y - y;
-        let dx2 = cp2x - x;
-        let dy2 = cp2y - y;
-        let mag1 = (dx1 * dx1 + dy1 * dy1).sqrt();
-        let mag2 = (dx2 * dx2 + dy2 * dy2).sqrt();
-        let xoffset1 = (cp1_r + 1.0) * dx1 / mag1;
-        let yoffset1 = (cp1_r + 1.0) * dy1 / mag1;
-        let xoffset2 = (cp2_r + 1.0) * dx2 / mag2;
-        let yoffset2 = (cp2_r + 1.0) * dy2 / mag2;
-
-        // Control lines
-        ui.painter().line_segment(
-            [pos2(x, y), pos2(cp1x - xoffset1, cp1y - yoffset1)],
-            Stroke::new(2.0, Color32::YELLOW),
-        );
-        ui.painter().line_segment(
-            [pos2(x, y), pos2(cp2x - xoffset2, cp2y - yoffset2)],
-            Stroke::new(2.0, Color32::YELLOW),
-        );
-
-        // Draw points
-        ui.painter().circle_filled(pos2(x, y), p_r, Color32::YELLOW);
-        ui.painter()
-            .circle_stroke(pos2(cp1x, cp1y), cp1_r, Stroke::new(2.0, Color32::YELLOW));
-        ui.painter()
-            .circle_stroke(pos2(cp2x, cp2y), cp2_r, Stroke::new(2.0, Color32::YELLOW));
-        return selected;
-    }
 }
 
 impl Default for PathyApp {
