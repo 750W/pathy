@@ -89,6 +89,8 @@ impl BezPoint {
             cp2_hov: false,
         }
     }
+    /// Draws the bezier point and handles, handling animations and hover states.
+    /// Returns whether or not the point is currently hovered.
     fn draw(
         &mut self,
         ui: &mut Ui,
@@ -96,7 +98,7 @@ impl BezPoint {
         ratio: f32,
         origin: Pos2,
         hover_pos: Option<Pos2>,
-    ) {
+    ) -> bool {
         let r = 5.0; // point radius
         let r_hov = 8.0; // hover radius
 
@@ -119,6 +121,7 @@ impl BezPoint {
         self.p_hov = false;
         self.cp1_hov = false;
         self.cp2_hov = false;
+        let mut selected = false;
         if let Some(hover_pos) = hover_pos {
             let mut distances = [
                 (&mut self.cp1_hov, hover_pos.distance_sq(pos2(cp1x, cp1y))),
@@ -132,6 +135,7 @@ impl BezPoint {
             if *min_distance < r * r {
                 console_log!("Hovered!");
                 **hovered = true;
+                selected = true;
                 console_log!(
                     "POINT: {}\nCONTROL POINT 1: {}\nCONTROL POINT 2: {}",
                     self.p_hov,
@@ -177,6 +181,7 @@ impl BezPoint {
             .circle_stroke(pos2(cp1x, cp1y), cp1_r, Stroke::new(2.0, Color32::YELLOW));
         ui.painter()
             .circle_stroke(pos2(cp2x, cp2y), cp2_r, Stroke::new(2.0, Color32::YELLOW));
+        return selected;
     }
 }
 
@@ -334,14 +339,18 @@ impl eframe::App for PathyApp {
             }
 
             /* POINT RENDERING */
+            let mut selected = false;
             for point in &mut self.points {
-                point.draw(
+                let res = point.draw(
                     ui,
                     ctx,
                     self.scale as f32 / self.size,
                     rect.min,
-                    resp.hover_pos(),
+                    if !selected { resp.hover_pos() } else { None }, // ensure only 1 point gets selected
                 );
+                if !selected {
+                    selected = res;
+                }
             }
 
             /* CLICK HANDLERS */
