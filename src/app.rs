@@ -1,7 +1,8 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crate::bezier::BezPoint;
-use egui::{lerp, pos2, Color32, Context, Pos2, Stroke, Ui, Vec2};
+use egui::{pos2, Color32, Pos2, Stroke, Vec2};
 use egui_extras::RetainedImage;
-use uuid::Uuid;
 
 // Uncomment this section to get access to the console_log macro
 // Use console_log to print things to console. println macro doesn't work
@@ -56,6 +57,9 @@ pub struct PathyApp {
     pub overlay: Option<RetainedImage>,
     /// Bezier points
     pub points: Vec<BezPoint>,
+    /// Locked selected point
+    #[serde(skip)]
+    pub selected: Option<Rc<RefCell<Pos2>>>,
 }
 
 impl Default for PathyApp {
@@ -67,6 +71,7 @@ impl Default for PathyApp {
             cursor_mode: CursorMode::Default,
             overlay: None,
             points: Vec::new(),
+            selected: None,
         }
     }
 }
@@ -189,45 +194,35 @@ impl eframe::App for PathyApp {
                 }
             }
 
-            /* TOOLTIPS */
-            match &self.cursor_mode {
-                CursorMode::Create => {
-                    // Display circle under pointer
-                    if let Some(pos) = resp.hover_pos() {
-                        ui.painter().circle(
-                            pos,
-                            5.0,
-                            Color32::from_black_alpha(0),
-                            Stroke::new(2.0, Color32::YELLOW),
-                        );
-                    }
-                }
-                CursorMode::Edit => {
-                    // TODO
-                }
-                CursorMode::Delete => {
-                    // TODO
-                }
-                _ => {}
-            }
-
             /* POINT RENDERING */
-            let mut selected = false;
+            let mut selected: Option<Rc<RefCell<Pos2>>> = None; // references currently selected point
             for point in &mut self.points {
                 let res = point.draw(
                     ui,
                     ctx,
                     self.scale as f32 / self.size,
                     rect.min,
-                    if !selected { resp.hover_pos() } else { None }, // ensure only 1 point gets selected
+                    if selected.is_none() {
+                        resp.hover_pos()
+                    } else {
+                        None
+                    }, // ensure only 1 point gets selected
                 );
-                if !selected {
-                    selected = res;
-                }
+                selected = selected.or(res);
             }
 
-            /* CLICK HANDLERS */
-            if resp.clicked() {
+            /* INPUT HANDLERS */
+            if ctx.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
+                // Lock selection in case of drag
+                if self.selected.is_none() {
+                    self.selected = selected.clone();
+                }
+            }
+            if ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
+                // Unlock any selection
+                self.selected = None;
+            }
+            if resp.clicked() && selected.is_none() {
                 match &self.cursor_mode {
                     CursorMode::Create => {
                         if let Some(pos) = resp.hover_pos() {
@@ -247,14 +242,49 @@ impl eframe::App for PathyApp {
                                 .push(BezPoint::new(x, y, x + 20.0, y + 10.0, x, y + 20.0));
                         }
                     }
-                    CursorMode::Edit => {
-                        // TODO
-                    }
                     CursorMode::Delete => {
                         // TODO
                     }
                     _ => {}
                 }
+            }
+
+            if resp.dragged() {
+                if let Some(point) = &self.selected {
+                    if let Some(pos) = ctx.pointer_interact_pos() {
+                        if let Ok(mut p) = point.try_borrow_mut() {
+                            p.x = (pos.x - rect.min.x) * (self.size / self.scale as f32);
+                            p.y = (pos.y - rect.min.y) * (self.size / self.scale as f32);
+                        } else {
+                            console_log!("ERROR: Failed to update point!");
+                        }
+                    }
+                }
+            }
+
+            /* TOOLTIPS */
+            match &self.cursor_mode {
+                CursorMode::Create => {
+                    // Display circle under pointer
+                    if self.selected.is_some() || selected.is_some() {
+                        return;
+                    }
+                    if let Some(pos) = resp.hover_pos() {
+                        ui.painter().circle(
+                            pos,
+                            5.0,
+                            Color32::from_black_alpha(0),
+                            Stroke::new(2.0, Color32::YELLOW),
+                        );
+                    }
+                }
+                CursorMode::Edit => {
+                    // TODO
+                }
+                CursorMode::Delete => {
+                    // TODO
+                }
+                _ => {}
             }
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
