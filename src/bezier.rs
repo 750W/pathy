@@ -65,9 +65,13 @@ impl Point {
         }
     }
     /// Offsets the point by the x and y.
-    fn offset(&mut self, x: f32, y: f32) {
+    pub fn offset(&mut self, x: f32, y: f32) {
         self.x += x;
         self.y += y;
+    }
+    /// Gets the screen position
+    pub fn screen(&self, ratio: f32, origin: Pos2) -> Pos2 {
+        pos2(self.x * ratio + origin.x, self.y * ratio + origin.y)
     }
 }
 
@@ -121,13 +125,10 @@ impl BezPoint {
         }
 
         // Main point
-        let x = self.pos.borrow().x * ratio + origin.x;
-        let y = self.pos.borrow().y * ratio + origin.y;
+        let Pos2 { x, y } = self.pos.borrow().screen(ratio, origin);
         // Control points
-        let cp1x = self.cp1.borrow().x * ratio + origin.x;
-        let cp1y = self.cp1.borrow().y * ratio + origin.y;
-        let cp2x = self.cp2.borrow().x * ratio + origin.x;
-        let cp2y = self.cp2.borrow().y * ratio + origin.y;
+        let Pos2 { x: cp1x, y: cp1y } = self.cp1.borrow().screen(ratio, origin);
+        let Pos2 { x: cp2x, y: cp2y } = self.cp2.borrow().screen(ratio, origin);
 
         #[derive(Clone)]
         enum Selected {
@@ -226,4 +227,17 @@ impl BezPoint {
             None => None,
         }
     }
+}
+
+/// Find the in-between point of a Bezier curve section at t, where t is from [0, 1].
+pub fn interpolate(a: &BezPoint, b: &BezPoint, t: f32) -> Point {
+    let x = (1.0 - t).powi(3) * a.pos.borrow().x
+        + 3.0 * (1.0 - t).powi(2) * t * a.cp2.borrow().x
+        + 3.0 * (1.0 - t) * t.powi(2) * b.cp1.borrow().x
+        + t.powi(3) * b.pos.borrow().x;
+    let y = (1.0 - t).powi(3) * a.pos.borrow().y
+        + 3.0 * (1.0 - t).powi(2) * t * a.cp2.borrow().y
+        + 3.0 * (1.0 - t) * t.powi(2) * b.cp1.borrow().y
+        + t.powi(3) * b.pos.borrow().y;
+    Point::new(x, y)
 }

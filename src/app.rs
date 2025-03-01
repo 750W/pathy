@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::bezier::{BezPoint, Point};
+use crate::bezier::{interpolate, BezPoint, Point};
 use egui::{pos2, Color32, Pos2, Stroke, Vec2};
 use egui_extras::RetainedImage;
 
@@ -194,7 +194,25 @@ impl eframe::App for PathyApp {
                 }
             }
 
-            /* POINT RENDERING */
+            /* POINT RENDERING + HOVER DETECTION */
+            // Render curve points
+            if self.points.len() >= 2 {
+                self.points.windows(2).for_each(|points| {
+                    if let [a, b, ..] = points {
+                        // evaluate each pair
+                        let steps = 100;
+                        for i in 1..steps {
+                            ui.painter().circle_filled(
+                                interpolate(a, b, i as f32 / steps as f32)
+                                    .screen(self.scale as f32 / self.size, rect.min),
+                                2.0,
+                                Color32::YELLOW,
+                            );
+                        }
+                    }
+                });
+            }
+
             let mut selected: Option<Rc<RefCell<Point>>> = None; // references currently selected point
             for point in &mut self.points {
                 let res = point.draw(
