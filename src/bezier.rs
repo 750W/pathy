@@ -200,7 +200,10 @@ impl BezPoint {
         }
 
         // Update point radii based on hover state
-        let dont_select = matches!(*mode, CursorMode::Delete | CursorMode::Trim);
+        let dont_select = matches!(
+            *mode,
+            CursorMode::Delete | CursorMode::Trim | CursorMode::Insert
+        );
         let p_r = lerp(
             r..=r_hov,
             ctx.animate_bool(
@@ -283,4 +286,23 @@ pub fn interpolate(a: &BezPoint, b: &BezPoint, t: f32) -> Point {
         + 3.0 * (1.0 - t) * t.powi(2) * b.cp1.borrow().y
         + t.powi(3) * b.pos.borrow().y;
     Point::new(x, y)
+}
+
+/// Find the in-between slope of a Bezier curve section at t, where t is from [0, 1].
+/// # Returns
+/// Some(f32) if slope is defined, None if slope is undefined (vertical).
+pub fn interpolate_slope(a: &BezPoint, b: &BezPoint, t: f32) -> Option<f32> {
+    let dx = (1.0 - t).powi(3) * a.pos.borrow().x
+        + 3.0 * (1.0 - t).powi(2) * t * a.cp2.borrow().x
+        + 3.0 * (1.0 - t) * t.powi(2) * b.cp1.borrow().x
+        + t.powi(3) * b.pos.borrow().x;
+    if dx.abs() < 1e-6 {
+        // check against epsilon
+        return None;
+    }
+    let dy = (1.0 - t).powi(3) * a.pos.borrow().y
+        + 3.0 * (1.0 - t).powi(2) * t * a.cp2.borrow().y
+        + 3.0 * (1.0 - t) * t.powi(2) * b.cp1.borrow().y
+        + t.powi(3) * b.pos.borrow().y;
+    return Some(dy / dx);
 }

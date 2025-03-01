@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::bezier::{interpolate, BezPoint, Point};
+use crate::bezier::{interpolate, interpolate_slope, BezPoint, Point};
 use egui::{pos2, Color32, Pos2, Stroke, Vec2};
 use egui_extras::RetainedImage;
 
@@ -37,8 +37,9 @@ macro_rules! console_log {
 pub enum CursorMode {
     Default,
     Create,
-    Trim,
+    Insert,
     Delete,
+    Trim,
 }
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -121,7 +122,12 @@ impl eframe::App for PathyApp {
                 );
                 ui.separator();
                 /* BUTTON LOGIC */
-                let modes = [CursorMode::Create, CursorMode::Trim, CursorMode::Delete];
+                let modes = [
+                    CursorMode::Create,
+                    CursorMode::Insert,
+                    CursorMode::Delete,
+                    CursorMode::Trim,
+                ];
                 // Custom selectable label lets us double click to return to default
                 for mode in modes {
                     if ui
@@ -195,21 +201,39 @@ impl eframe::App for PathyApp {
 
             /* POINT RENDERING + HOVER DETECTION */
             // Render curve points
+            let mut min_dis = f32::MAX;
+            let mut closest: Option<Pos2> = None;
+            let mut closest_idx: usize = 0;
+            let mut slope: Option<f32> = None;
             if self.points.len() >= 2 {
-                self.points.windows(2).for_each(|points| {
-                    if let [a, b, ..] = points {
-                        // evaluate each pair
-                        let steps = 100;
-                        for i in 1..steps {
-                            ui.painter().circle_filled(
-                                interpolate(a, b, i as f32 / steps as f32)
-                                    .screen(self.scale as f32 / self.size, rect.min),
-                                2.0,
-                                Color32::YELLOW,
-                            );
+                self.points
+                    .windows(2)
+                    .enumerate()
+                    .for_each(|(idx, points)| {
+                        if let [a, b, ..] = points {
+                            // evaluate each pair
+                            let steps = 100;
+                            for i in 1..steps {
+                                let point = interpolate(a, b, i as f32 / steps as f32)
+                                    .screen(self.scale as f32 / self.size, rect.min);
+                                ui.painter().circle_filled(point, 2.0, Color32::YELLOW);
+                                // If insert mode, find closest point
+                                match (&self.cursor_mode, resp.hover_pos()) {
+                                    (CursorMode::Insert, Some(pos)) => {
+                                        let dist = point.distance_sq(pos);
+                                        if dist < min_dis {
+                                            min_dis = dist;
+                                            closest = Some(point);
+                                            closest_idx = idx;
+                                            slope =
+                                                interpolate_slope(a, b, i as f32 / steps as f32);
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
                         }
-                    }
-                });
+                    });
             }
 
             let mut selected: Option<Rc<RefCell<Point>>> = None; // references currently selected point
@@ -305,6 +329,20 @@ impl eframe::App for PathyApp {
                             self.points.truncate(i);
                         }
                     }
+                    CursorMode::Insert => match (closest, slope) {
+                        (Some(pos), Some(slope)) => {
+                            let x = (pos.x - rect.min.x) * (self.size / self.scale as f32);
+                            let y = (pos.y - rect.min.y) * (self.size / self.scale as f32);
+                            let Pos2 { x: ix, y: iy } =
+                                Pos2::from(self.points[closest_idx].cp2.borrow().clone())
+                                    .lerp(pos2(x, y), 0.5);
+                            self.points.insert(
+                                closest_idx + 1,
+                                BezPoint::new(x, y, ix, iy, 2.0 * x - ix, 2.0 * y - iy),
+                            );
+                        }
+                        _ => {}
+                    },
                     _ => {}
                 }
             }
@@ -330,19 +368,16 @@ impl eframe::App for PathyApp {
                         return;
                     }
                     if let Some(pos) = resp.hover_pos() {
-                        ui.painter().circle(
-                            pos,
-                            5.0,
-                            Color32::from_black_alpha(0),
-                            Stroke::new(2.0, Color32::YELLOW),
-                        );
+                        ui.painter()
+                            .circle_stroke(pos, 5.0, Stroke::new(2.0, Color32::YELLOW));
                     }
                 }
-                CursorMode::Trim => {
-                    // TODO
-                }
-                CursorMode::Delete => {
-                    // TODO
+                CursorMode::Insert => {
+                    // Display circle under closest point
+                    if let Some(pos) = closest {
+                        ui.painter()
+                            .circle_stroke(pos, 5.0, Stroke::new(2.0, Color32::YELLOW));
+                    }
                 }
                 _ => {}
             }
