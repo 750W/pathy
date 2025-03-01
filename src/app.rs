@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::bezier::BezPoint;
+use crate::bezier::{BezPoint, Point};
 use egui::{pos2, Color32, Pos2, Stroke, Vec2};
 use egui_extras::RetainedImage;
 
@@ -59,7 +59,7 @@ pub struct PathyApp {
     pub points: Vec<BezPoint>,
     /// Locked selected point
     #[serde(skip)]
-    pub selected: Option<Rc<RefCell<Pos2>>>,
+    pub selected: Option<Rc<RefCell<Point>>>,
 }
 
 impl Default for PathyApp {
@@ -195,7 +195,7 @@ impl eframe::App for PathyApp {
             }
 
             /* POINT RENDERING */
-            let mut selected: Option<Rc<RefCell<Pos2>>> = None; // references currently selected point
+            let mut selected: Option<Rc<RefCell<Point>>> = None; // references currently selected point
             for point in &mut self.points {
                 let res = point.draw(
                     ui,
@@ -215,12 +215,18 @@ impl eframe::App for PathyApp {
             if ctx.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
                 // Lock selection in case of drag
                 if self.selected.is_none() {
-                    self.selected = selected.clone();
+                    if let Some(point) = &selected {
+                        point.borrow_mut().locked = true;
+                        self.selected = Some(point.clone());
+                    }
                 }
             }
             if ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
                 // Unlock any selection
-                self.selected = None;
+                if let Some(point) = &self.selected {
+                    point.borrow_mut().locked = false;
+                    self.selected = None;
+                }
             }
             if resp.clicked() && selected.is_none() {
                 match &self.cursor_mode {
@@ -238,8 +244,14 @@ impl eframe::App for PathyApp {
                             let x = (pos.x - rect.min.x) * (self.size / self.scale as f32);
                             let y = (pos.y - rect.min.y) * (self.size / self.scale as f32);
                             console_log!("({}, {})", x, y);
-                            self.points
-                                .push(BezPoint::new(x, y, x + 20.0, y + 10.0, x, y + 20.0));
+                            self.points.push(BezPoint::new(
+                                x,
+                                y,
+                                x + 10.0,
+                                y + 10.0,
+                                x - 10.0,
+                                y - 10.0,
+                            ));
                         }
                     }
                     CursorMode::Delete => {
