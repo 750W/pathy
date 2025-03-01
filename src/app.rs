@@ -261,7 +261,7 @@ impl eframe::App for PathyApp {
                 }
             }
 
-            if resp.dragged() {
+            if resp.dragged() && resp.contains_pointer() {
                 if let Some(point) = &self.selected {
                     if let Some(pos) = ctx.pointer_interact_pos() {
                         if let Ok(mut p) = point.try_borrow_mut() {
