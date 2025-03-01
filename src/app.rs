@@ -262,14 +262,22 @@ impl eframe::App for PathyApp {
                             let x = (pos.x - rect.min.x) * (self.size / self.scale as f32);
                             let y = (pos.y - rect.min.y) * (self.size / self.scale as f32);
                             console_log!("({}, {})", x, y);
-                            self.points.push(BezPoint::new(
-                                x,
-                                y,
-                                x + 10.0,
-                                y + 10.0,
-                                x - 10.0,
-                                y - 10.0,
-                            ));
+                            if self.points.is_empty() {
+                                self.points
+                                    .push(BezPoint::new(x, y, x - 10.0, y, x + 10.0, y));
+                            } else {
+                                let Pos2 { x: ix, y: iy } =
+                                    Pos2::from(self.points.last().unwrap().cp2.borrow().clone())
+                                        .lerp(pos2(x, y), 0.5);
+                                self.points.push(BezPoint::new(
+                                    x,
+                                    y,
+                                    ix,
+                                    iy,
+                                    2.0 * x - ix,
+                                    2.0 * y - iy,
+                                ));
+                            }
                         }
                     }
                     CursorMode::Delete => {

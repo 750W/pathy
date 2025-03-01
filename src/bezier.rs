@@ -75,6 +75,12 @@ impl Point {
     }
 }
 
+impl From<Point> for Pos2 {
+    fn from(point: Point) -> Self {
+        pos2(point.x, point.y)
+    }
+}
+
 impl BezPoint {
     /// Creates a new bezier point.
     pub fn new(x: f32, y: f32, cp1x: f32, cp1y: f32, cp2x: f32, cp2y: f32) -> Self {
