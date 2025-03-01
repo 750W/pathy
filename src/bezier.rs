@@ -7,6 +7,8 @@ use uuid::Uuid;
 // Use console_log to print things to console. println macro doesn't work
 // here, so you'll need it.
 use wasm_bindgen::prelude::*;
+
+use crate::app::CursorMode;
 #[wasm_bindgen]
 extern "C" {
     // Use `js_namespace` here to bind `console.log(..)` instead of just
@@ -83,6 +85,14 @@ impl From<Point> for Pos2 {
 
 impl BezPoint {
     /// Creates a new bezier point.
+    ///
+    /// # Arguments
+    /// * `x` - The x position of the center point.
+    /// * `y` - The y position of the center point.
+    /// * `cp1x` - The x position of the first control point.
+    /// * `cp1y` - The y position of the first control point.
+    /// * `cp2x` - The x position of the second control point.
+    /// * `cp2y` - The y position of the second control point.
     pub fn new(x: f32, y: f32, cp1x: f32, cp1y: f32, cp2x: f32, cp2y: f32) -> Self {
         Self {
             pos: Rc::new(RefCell::new(Point::new(x, y))),
@@ -94,12 +104,24 @@ impl BezPoint {
     }
     /// Draws the bezier point and handles, handling animations and hover states.
     /// If hovered, returns the hovered point.
+    ///
+    /// # Arguments
+    /// * `ui` - The egui ui.
+    /// * `ctx` - The egui context.
+    /// * `ratio` - The ratio of the screen size to the field size.
+    /// * `origin` - The origin of the field(top-left corner).
+    /// * `mode` - The current cursor mode. CursorMode::Trim should only be supplied to points which will be deleted.
+    /// * `hover_pos` - The position of the cursor.
+    ///
+    /// # Returns
+    /// `Some(Rc<RefCell<Point>>)` containing the hovered point, or None if no point is hovered.
     pub fn draw(
         &mut self,
         ui: &mut Ui,
         ctx: &Context,
         ratio: f32,
         origin: Pos2,
+        mode: &CursorMode,
         hover_pos: Option<Pos2>,
     ) -> Option<Rc<RefCell<Point>>> {
         let r = 5.0; // point radius
@@ -178,22 +200,37 @@ impl BezPoint {
         }
 
         // Update point radii based on hover state
+        let dont_select = matches!(*mode, CursorMode::Delete | CursorMode::Trim);
         let p_r = lerp(
             r..=r_hov,
-            ctx.animate_bool(p_id, self.pos.borrow().selected || self.pos.borrow().locked),
+            ctx.animate_bool(
+                p_id,
+                !dont_select && (self.pos.borrow().selected || self.pos.borrow().locked),
+            ),
         );
         let cp1_r = lerp(
             r..=r_hov,
             ctx.animate_bool(
                 cp1_id,
-                self.cp1.borrow().selected || self.cp1.borrow().locked,
+                !dont_select && (self.cp1.borrow().selected || self.cp1.borrow().locked),
             ),
         );
         let cp2_r = lerp(
             r..=r_hov,
             ctx.animate_bool(
                 cp2_id,
-                self.cp2.borrow().selected || self.cp2.borrow().locked,
+                !dont_select && (self.cp2.borrow().selected || self.cp2.borrow().locked),
+            ),
+        );
+        let color = Color32::YELLOW.lerp_to_gamma(
+            Color32::RED,
+            ctx.animate_bool(
+                id,
+                (*mode == CursorMode::Trim)
+                    || ((*mode == CursorMode::Delete)
+                        && (self.pos.borrow().selected
+                            || self.cp1.borrow().selected
+                            || self.cp2.borrow().selected)),
             ),
         );
 
@@ -213,19 +250,19 @@ impl BezPoint {
         // Control lines
         ui.painter().line_segment(
             [pos2(x, y), pos2(cp1x - xoffset1, cp1y - yoffset1)],
-            Stroke::new(2.0, Color32::YELLOW),
+            Stroke::new(2.0, color),
         );
         ui.painter().line_segment(
             [pos2(x, y), pos2(cp2x - xoffset2, cp2y - yoffset2)],
-            Stroke::new(2.0, Color32::YELLOW),
+            Stroke::new(2.0, color),
         );
 
         // Draw points
-        ui.painter().circle_filled(pos2(x, y), p_r, Color32::YELLOW);
+        ui.painter().circle_filled(pos2(x, y), p_r, color);
         ui.painter()
-            .circle_stroke(pos2(cp1x, cp1y), cp1_r, Stroke::new(2.0, Color32::YELLOW));
+            .circle_stroke(pos2(cp1x, cp1y), cp1_r, Stroke::new(2.0, color));
         ui.painter()
-            .circle_stroke(pos2(cp2x, cp2y), cp2_r, Stroke::new(2.0, Color32::YELLOW));
+            .circle_stroke(pos2(cp2x, cp2y), cp2_r, Stroke::new(2.0, color));
         match selected {
             Some(Selected::P) => Some(self.pos.clone()),
             Some(Selected::CP1) => Some(self.cp1.clone()),

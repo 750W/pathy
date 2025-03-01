@@ -33,11 +33,11 @@ macro_rules! console_log {
 }
 
 // */
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum CursorMode {
     Default,
     Create,
-    Edit,
+    Trim,
     Delete,
 }
 
@@ -121,15 +121,14 @@ impl eframe::App for PathyApp {
                 );
                 ui.separator();
                 /* BUTTON LOGIC */
-                let modes = [
-                    (CursorMode::Create, "Create"),
-                    (CursorMode::Edit, "Edit"),
-                    (CursorMode::Delete, "Delete"),
-                ];
+                let modes = [CursorMode::Create, CursorMode::Trim, CursorMode::Delete];
                 // Custom selectable label lets us double click to return to default
-                for (mode, label) in modes {
+                for mode in modes {
                     if ui
-                        .add(egui::SelectableLabel::new(self.cursor_mode == mode, label))
+                        .add(egui::SelectableLabel::new(
+                            self.cursor_mode == mode,
+                            format!("{mode:?}"), // since we derive debug
+                        ))
                         .clicked()
                     {
                         if self.cursor_mode != mode {
@@ -214,23 +213,36 @@ impl eframe::App for PathyApp {
             }
 
             let mut selected: Option<Rc<RefCell<Point>>> = None; // references currently selected point
-            for point in &mut self.points {
+            let mut idx: Option<usize> = None;
+            for (i, point) in &mut self.points.iter_mut().enumerate() {
                 let res = point.draw(
                     ui,
                     ctx,
                     self.scale as f32 / self.size,
                     rect.min,
+                    if self.cursor_mode == CursorMode::Trim {
+                        if idx.is_some() {
+                            &CursorMode::Trim
+                        } else {
+                            &CursorMode::Delete
+                        }
+                    } else {
+                        &self.cursor_mode
+                    },
                     if selected.is_none() {
                         resp.hover_pos()
                     } else {
                         None
                     }, // ensure only 1 point gets selected
                 );
+                idx = idx.or(if res.is_some() { Some(i) } else { None });
                 selected = selected.or(res);
             }
 
             /* INPUT HANDLERS */
-            if ctx.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
+            if ctx.input(|i| i.pointer.button_down(egui::PointerButton::Primary))
+                && !matches!(self.cursor_mode, CursorMode::Delete | CursorMode::Trim)
+            {
                 // Lock selection in case of drag
                 if self.selected.is_none() {
                     if let Some(point) = &selected {
@@ -246,9 +258,12 @@ impl eframe::App for PathyApp {
                     self.selected = None;
                 }
             }
-            if resp.clicked() && selected.is_none() {
+            if resp.clicked() {
                 match &self.cursor_mode {
                     CursorMode::Create => {
+                        if selected.is_some() {
+                            return;
+                        }
                         if let Some(pos) = resp.hover_pos() {
                             // Ensure points within bounds
                             if pos.x < rect.min.x
@@ -281,7 +296,14 @@ impl eframe::App for PathyApp {
                         }
                     }
                     CursorMode::Delete => {
-                        // TODO
+                        if let Some(i) = idx {
+                            self.points.remove(i);
+                        }
+                    }
+                    CursorMode::Trim => {
+                        if let Some(i) = idx {
+                            self.points.truncate(i);
+                        }
                     }
                     _ => {}
                 }
@@ -316,7 +338,7 @@ impl eframe::App for PathyApp {
                         );
                     }
                 }
-                CursorMode::Edit => {
+                CursorMode::Trim => {
                     // TODO
                 }
                 CursorMode::Delete => {
