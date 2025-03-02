@@ -270,7 +270,7 @@ impl eframe::App for PathyApp {
                     };
                     // Lock once animation completed
                     // So step size changes don't animate
-                    if draw_steps == self.steps {
+                    if draw_steps >= self.steps {
                         self.points[idx + 1].animated = true;
                     }
                     for i in 1..draw_steps {
