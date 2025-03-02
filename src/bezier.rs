@@ -42,7 +42,7 @@ pub struct BezPoint {
     pub cp2: Rc<RefCell<Point>>,
 
     // ID
-    id: Uuid,
+    pub id: Uuid,
     // Previous position to keep track of offsets
     prev: Point,
 }
@@ -292,17 +292,15 @@ pub fn interpolate(a: &BezPoint, b: &BezPoint, t: f32) -> Point {
 /// # Returns
 /// Some(f32) if slope is defined, None if slope is undefined (vertical).
 pub fn interpolate_slope(a: &BezPoint, b: &BezPoint, t: f32) -> Option<f32> {
-    let dx = (1.0 - t).powi(3) * a.pos.borrow().x
-        + 3.0 * (1.0 - t).powi(2) * t * a.cp2.borrow().x
-        + 3.0 * (1.0 - t) * t.powi(2) * b.cp1.borrow().x
-        + t.powi(3) * b.pos.borrow().x;
+    let dx = 3.0 * (1.0 - t).powi(2) * (a.cp2.borrow().x - a.pos.borrow().x)
+        + 6.0 * (1.0 - t) * t * (b.cp1.borrow().x - a.cp2.borrow().x)
+        + 3.0 * t.powi(2) * (b.pos.borrow().x - b.cp1.borrow().x);
     if dx.abs() < 1e-6 {
         // check against epsilon
         return None;
     }
-    let dy = (1.0 - t).powi(3) * a.pos.borrow().y
-        + 3.0 * (1.0 - t).powi(2) * t * a.cp2.borrow().y
-        + 3.0 * (1.0 - t) * t.powi(2) * b.cp1.borrow().y
-        + t.powi(3) * b.pos.borrow().y;
+    let dy = 3.0 * (1.0 - t).powi(2) * (a.cp2.borrow().y - a.pos.borrow().y)
+        + 6.0 * (1.0 - t) * t * (b.cp1.borrow().y - a.cp2.borrow().y)
+        + 3.0 * t.powi(2) * (b.pos.borrow().y - b.cp1.borrow().y);
     return Some(dy / dx);
 }

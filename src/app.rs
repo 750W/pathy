@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::bezier::{interpolate, interpolate_slope, BezPoint, Point};
-use egui::{pos2, Color32, Pos2, Stroke, Vec2};
+use egui::{pos2, Color32, FontDefinitions, FontFamily, FontId, Pos2, Stroke, Vec2};
 use egui_extras::RetainedImage;
 
 // Uncomment this section to get access to the console_log macro
@@ -33,7 +33,7 @@ macro_rules! console_log {
 }
 
 // */
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum CursorMode {
     Default,
     Create,
@@ -82,6 +82,24 @@ impl PathyApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
+        let mut fonts = FontDefinitions::default();
+
+        fonts.font_data.insert(
+            "SpaceGrotesk".to_owned(),
+            std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+                "../SpaceGrotesk-Regular.ttf"
+            ))),
+        );
+        fonts
+            .families
+            .get_mut(&FontFamily::Proportional)
+            .unwrap()
+            .insert(0, "SpaceGrotesk".into());
+        cc.egui_ctx.set_fonts(fonts);
+        // only if in dark mode
+        cc.egui_ctx.style_mut_of(egui::Theme::Dark, |style| {
+            style.visuals.panel_fill = Color32::from_gray(10);
+        });
 
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
@@ -113,7 +131,9 @@ impl eframe::App for PathyApp {
                 ui.label("Field Size: ");
                 ui.add_enabled_ui(self.points.is_empty(), |ui| {
                     ui.add(egui::DragValue::new(&mut self.size).suffix(" inches"));
-                });
+                })
+                .response
+                .on_disabled_hover_text("Field size may not be changed once path is created.");
                 ui.label("Field Scale: ");
                 ui.add(
                     egui::DragValue::new(&mut self.scale)
@@ -123,33 +143,48 @@ impl eframe::App for PathyApp {
                 ui.separator();
                 /* BUTTON LOGIC */
                 let modes = [
-                    CursorMode::Create,
-                    CursorMode::Insert,
-                    CursorMode::Delete,
-                    CursorMode::Trim,
+                    (egui::Key::C, CursorMode::Create, "Create new point"),
+                    (egui::Key::I, CursorMode::Insert, "Insert point in path"),
+                    (egui::Key::D, CursorMode::Delete, "Delete a single point"),
+                    (egui::Key::T, CursorMode::Trim, "Trim path to point"),
                 ];
                 // Custom selectable label lets us double click to return to default
-                for mode in modes {
+                for (key, mode, desc) in modes {
                     if ui
                         .add(egui::SelectableLabel::new(
                             self.cursor_mode == mode,
                             format!("{mode:?}"), // since we derive debug
                         ))
+                        .on_hover_text(format!("{desc} ({})", format!("{:?}", key).to_lowercase()))
                         .clicked()
                     {
                         if self.cursor_mode != mode {
-                            self.cursor_mode = mode;
+                            self.cursor_mode = mode.clone();
                         } else {
                             self.cursor_mode = CursorMode::Default;
                         }
                     }
+                    // also check key press
+                    ctx.input(|input| {
+                        if input.key_pressed(key) {
+                            if self.cursor_mode != mode {
+                                self.cursor_mode = mode;
+                            } else {
+                                self.cursor_mode = CursorMode::Default;
+                            }
+                        }
+                    });
                 }
                 ui.separator();
-                if ui.button("Generate").clicked() {
+                if ui
+                    .button("Generate")
+                    .on_hover_text("Generate path code")
+                    .clicked()
+                {
                     // TODO: generate logic
                     self.cursor_mode = CursorMode::Default;
                 };
-                if ui.button("Clear").clicked() {
+                if ui.button("Clear").on_hover_text("Clear path").clicked() {
                     self.points.clear();
                 };
                 ui.separator();
@@ -194,8 +229,15 @@ impl eframe::App for PathyApp {
                     );
                 }
                 None => {
-                    ui.painter()
-                        .rect(rect, 0.0, Color32::from_gray(64), Stroke::NONE);
+                    ui.painter().rect(
+                        rect,
+                        0.0,
+                        match ctx.theme() {
+                            egui::Theme::Dark => Color32::from_gray(30),
+                            egui::Theme::Light => Color32::from_gray(180),
+                        },
+                        Stroke::NONE,
+                    );
                 }
             }
 
@@ -213,13 +255,18 @@ impl eframe::App for PathyApp {
                         if let [a, b, ..] = points {
                             // evaluate each pair
                             let steps = 100;
-                            for i in 1..steps {
+                            let draw_steps = ctx.animate_value_with_time(
+                                ui.make_persistent_id(b.id),
+                                steps as f32,
+                                0.3,
+                            ) as usize;
+                            for i in 1..draw_steps {
                                 let point = interpolate(a, b, i as f32 / steps as f32)
                                     .screen(self.scale as f32 / self.size, rect.min);
                                 ui.painter().circle_filled(point, 2.0, Color32::YELLOW);
                                 // If insert mode, find closest point
-                                match (&self.cursor_mode, resp.hover_pos()) {
-                                    (CursorMode::Insert, Some(pos)) => {
+                                if self.cursor_mode == CursorMode::Insert {
+                                    if let Some(pos) = resp.hover_pos() {
                                         let dist = point.distance_sq(pos);
                                         if dist < min_dis {
                                             min_dis = dist;
@@ -229,7 +276,6 @@ impl eframe::App for PathyApp {
                                                 interpolate_slope(a, b, i as f32 / steps as f32);
                                         }
                                     }
-                                    _ => {}
                                 }
                             }
                         }
@@ -316,6 +362,12 @@ impl eframe::App for PathyApp {
                                     2.0 * x - ix,
                                     2.0 * y - iy,
                                 ));
+                                // setup initial animation value
+                                ctx.animate_value_with_time(
+                                    ui.make_persistent_id(self.points.last().unwrap().id),
+                                    0.0,
+                                    0.5,
+                                );
                             }
                         }
                     }
