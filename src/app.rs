@@ -58,6 +58,8 @@ pub struct PathyApp {
     pub overlay: Option<RetainedImage>,
     /// Bezier points
     pub points: Vec<BezPoint>,
+    /// Number of steps
+    pub steps: usize,
     /// Locked selected point
     #[serde(skip)]
     pub selected: Option<Rc<RefCell<Point>>>,
@@ -72,6 +74,7 @@ impl Default for PathyApp {
             cursor_mode: CursorMode::Default,
             overlay: None,
             points: Vec::new(),
+            steps: 100,
             selected: None,
         }
     }
@@ -139,7 +142,11 @@ impl eframe::App for PathyApp {
                     egui::DragValue::new(&mut self.scale)
                         .suffix("px")
                         .speed(2.5),
-                );
+                )
+                .on_hover_text("Screen scale of the field");
+                ui.label("Point Density: ");
+                ui.add(egui::DragValue::new(&mut self.steps).speed(2.5))
+                    .on_hover_text("Number of points to display for each curve");
                 ui.separator();
                 /* BUTTON LOGIC */
                 let modes = [
@@ -246,40 +253,44 @@ impl eframe::App for PathyApp {
             let mut min_dis = f32::MAX;
             let mut closest: Option<Pos2> = None;
             let mut closest_idx: usize = 0;
-            let mut slope: Option<f32> = None;
+            let mut closest_step: f32 = 0.0;
             if self.points.len() >= 2 {
-                self.points
-                    .windows(2)
-                    .enumerate()
-                    .for_each(|(idx, points)| {
-                        if let [a, b, ..] = points {
-                            // evaluate each pair
-                            let steps = 100;
-                            let draw_steps = ctx.animate_value_with_time(
-                                ui.make_persistent_id(b.id),
-                                steps as f32,
-                                0.3,
-                            ) as usize;
-                            for i in 1..draw_steps {
-                                let point = interpolate(a, b, i as f32 / steps as f32)
-                                    .screen(self.scale as f32 / self.size, rect.min);
-                                ui.painter().circle_filled(point, 2.0, Color32::YELLOW);
-                                // If insert mode, find closest point
-                                if self.cursor_mode == CursorMode::Insert {
-                                    if let Some(pos) = resp.hover_pos() {
-                                        let dist = point.distance_sq(pos);
-                                        if dist < min_dis {
-                                            min_dis = dist;
-                                            closest = Some(point);
-                                            closest_idx = idx;
-                                            slope =
-                                                interpolate_slope(a, b, i as f32 / steps as f32);
-                                        }
-                                    }
+                for idx in 0..self.points.len() - 1 {
+                    let a = self.points[idx].clone();
+                    let b = self.points[idx + 1].clone();
+                    // evaluate each pair
+                    let draw_steps = if !b.animated {
+                        ctx.animate_value_with_time(
+                            ui.make_persistent_id(b.id),
+                            self.steps as f32,
+                            0.3,
+                        ) as usize
+                    } else {
+                        self.steps
+                    };
+                    // Lock once animation completed
+                    // So step size changes don't animate
+                    if draw_steps == self.steps {
+                        self.points[idx + 1].animated = true;
+                    }
+                    for i in 1..draw_steps {
+                        let point = interpolate(&a, &b, i as f32 / self.steps as f32)
+                            .screen(self.scale as f32 / self.size, rect.min);
+                        ui.painter().circle_filled(point, 2.0, Color32::YELLOW);
+                        // If insert mode, find closest point
+                        if self.cursor_mode == CursorMode::Insert {
+                            if let Some(pos) = resp.hover_pos() {
+                                let dist = point.distance_sq(pos);
+                                if dist < min_dis {
+                                    min_dis = dist;
+                                    closest = Some(point);
+                                    closest_idx = idx;
+                                    closest_step = i as f32 / self.steps as f32;
                                 }
                             }
                         }
-                    });
+                    }
+                }
             }
 
             let mut selected: Option<Rc<RefCell<Point>>> = None; // references currently selected point
@@ -381,20 +392,22 @@ impl eframe::App for PathyApp {
                             self.points.truncate(i);
                         }
                     }
-                    CursorMode::Insert => match (closest, slope) {
-                        (Some(pos), Some(slope)) => {
+                    CursorMode::Insert => {
+                        if let Some(pos) = closest {
                             let x = (pos.x - rect.min.x) * (self.size / self.scale as f32);
                             let y = (pos.y - rect.min.y) * (self.size / self.scale as f32);
-                            let Pos2 { x: ix, y: iy } =
-                                Pos2::from(self.points[closest_idx].cp2.borrow().clone())
-                                    .lerp(pos2(x, y), 0.5);
+                            // Calculate future x and ys
+                            let Point { x: fx, y: fy, .. } = interpolate(
+                                &self.points[closest_idx],
+                                &self.points[closest_idx + 1],
+                                closest_step + 0.1,
+                            );
                             self.points.insert(
                                 closest_idx + 1,
-                                BezPoint::new(x, y, ix, iy, 2.0 * x - ix, 2.0 * y - iy),
+                                BezPoint::new(x, y, 2.0 * x - fx, 2.0 * y - fy, fx, fy),
                             );
                         }
-                        _ => {}
-                    },
+                    }
                     _ => {}
                 }
             }

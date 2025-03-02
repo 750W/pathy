@@ -35,7 +35,7 @@ macro_rules! console_log {
 
 // */
 /// A Bezier point.
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
 pub struct BezPoint {
     pub pos: Rc<RefCell<Point>>,
     pub cp1: Rc<RefCell<Point>>,
@@ -43,6 +43,7 @@ pub struct BezPoint {
 
     // ID
     pub id: Uuid,
+    pub animated: bool,
     // Previous position to keep track of offsets
     prev: Point,
 }
@@ -99,6 +100,7 @@ impl BezPoint {
             cp1: Rc::new(RefCell::new(Point::new(cp1x, cp1y))),
             cp2: Rc::new(RefCell::new(Point::new(cp2x, cp2y))),
             id: Uuid::new_v4(),
+            animated: false,
             prev: Point::new(x, y),
         }
     }
