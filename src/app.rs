@@ -535,7 +535,7 @@ impl eframe::App for PathyApp {
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 if self.background == Background::Custom && self.overlay.is_none() {
-                    ui.label("Drop image here to set custom background");
+                    ui.label("Drag an drop an image to set the field background!");
                 }
                 egui::warn_if_debug_build(ui);
             });
