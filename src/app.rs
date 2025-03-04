@@ -1,7 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::bezier::{interpolate, interpolate_slope, BezPoint, Point};
-use egui::{pos2, Color32, FontDefinitions, FontFamily, FontId, Pos2, Stroke, Vec2};
+use crate::generate::generate;
+use egui::{pos2, Color32, FontDefinitions, FontFamily, FontId, Pos2, Stroke, TextEdit, Vec2};
 use egui_extras::RetainedImage;
 
 // Uncomment this section to get access to the console_log macro
@@ -42,6 +43,14 @@ pub enum CursorMode {
     Trim,
 }
 
+/// Represents chosen background image.
+#[derive(serde::Deserialize, serde::Serialize, Debug, PartialEq, Eq)]
+pub enum Background {
+    Game,
+    Skills,
+    Custom,
+}
+
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
@@ -53,9 +62,11 @@ pub struct PathyApp {
     /// Current cursor mode
     #[serde(skip)]
     pub cursor_mode: CursorMode,
-    /// Background image
+    /// Uploaded background image
     #[serde(skip)]
     pub overlay: Option<RetainedImage>,
+    /// Field background image
+    pub background: Background,
     /// Bezier points
     pub points: Vec<BezPoint>,
     /// Number of steps
@@ -63,6 +74,8 @@ pub struct PathyApp {
     /// Locked selected point
     #[serde(skip)]
     pub selected: Option<Rc<RefCell<Point>>>,
+    /// Generated code
+    pub generated: String,
 }
 
 impl Default for PathyApp {
@@ -73,9 +86,11 @@ impl Default for PathyApp {
             scale: 720,
             cursor_mode: CursorMode::Default,
             overlay: None,
+            background: Background::Game,
             points: Vec::new(),
             steps: 100,
             selected: None,
+            generated: String::new(),
         }
     }
 }
@@ -90,7 +105,7 @@ impl PathyApp {
         fonts.font_data.insert(
             "SpaceGrotesk".to_owned(),
             std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
-                "../SpaceGrotesk-Regular.ttf"
+                "../assets/SpaceGrotesk-Regular.ttf"
             ))),
         );
         fonts
@@ -106,11 +121,46 @@ impl PathyApp {
 
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
-        if let Some(storage) = cc.storage {
-            return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
-        }
+        let mut app: Self = if let Some(storage) = cc.storage {
+            eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
+        } else {
+            Default::default()
+        };
 
-        Default::default()
+        // Generate code and load overlay on startup
+        app.generate();
+        app.load_field_overlay();
+        app
+    }
+    /// Update generated code
+    fn generate(&mut self) {
+        self.generated = generate(&self.points, 0.1);
+    }
+    /// Update field image
+    fn load_field_overlay(&mut self) {
+        match self.background {
+            Background::Game => {
+                self.overlay = Some(
+                    RetainedImage::from_image_bytes(
+                        "",
+                        include_bytes!("../assets/high-stakes-game.png"),
+                    )
+                    .unwrap(),
+                );
+            }
+            Background::Skills => {
+                self.overlay = Some(
+                    RetainedImage::from_image_bytes(
+                        "",
+                        include_bytes!("../assets/high-stakes-skills.png"),
+                    )
+                    .unwrap(),
+                );
+            }
+            Background::Custom => {
+                self.overlay = None;
+            }
+        }
     }
 }
 
@@ -188,15 +238,28 @@ impl eframe::App for PathyApp {
                     .on_hover_text("Generate path code")
                     .clicked()
                 {
-                    // TODO: generate logic
-                    self.cursor_mode = CursorMode::Default;
+                    self.generate();
                 };
                 if ui.button("Clear").on_hover_text("Clear path").clicked() {
                     self.points.clear();
+                    self.generate();
                 };
                 ui.separator();
-                if let None = self.overlay {
-                    ui.label("Drop an image to set the field background!");
+                ui.label("Field: ");
+                // store functions to lazily load images
+                // do NOT load these every frame
+                let fields = [Background::Game, Background::Skills, Background::Custom];
+                for field in fields {
+                    if ui
+                        .add(egui::SelectableLabel::new(
+                            self.background == field,
+                            format!("{field:?}"),
+                        ))
+                        .clicked()
+                    {
+                        self.background = field;
+                        self.load_field_overlay();
+                    }
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
@@ -206,6 +269,19 @@ impl eframe::App for PathyApp {
             });
         });
 
+        egui::SidePanel::right("Code").show(ctx, |ui| {
+            ui.with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.label("Code");
+                    ui.separator();
+                    ui.add(
+                        TextEdit::multiline(&mut self.generated.clone())
+                            .font(egui::FontId::monospace(12.0))
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+            });
+        });
         egui::CentralPanel::default().show(ctx, |ui| {
             /* FIELD RENDERING */
             let (rect, resp) = ui.allocate_exact_size(
@@ -216,16 +292,17 @@ impl eframe::App for PathyApp {
                 egui::Sense::click_and_drag(),
             );
             // Check for dropped image
-            ctx.input(|i| {
-                if let Some(file) = i.raw.dropped_files.last() {
-                    if let Some(bytes) = file.clone().bytes {
-                        if let Ok(image) = RetainedImage::from_image_bytes("", &bytes) {
-                            self.overlay = Some(image);
+            if self.background == Background::Custom {
+                ctx.input(|i| {
+                    if let Some(file) = i.raw.dropped_files.last() {
+                        if let Some(bytes) = file.clone().bytes {
+                            if let Ok(image) = RetainedImage::from_image_bytes("", &bytes) {
+                                self.overlay = Some(image);
+                            }
                         }
                     }
-                }
-            });
-            // Draw field background
+                });
+            }
             match &self.overlay {
                 Some(image) => {
                     ui.painter().image(
@@ -235,7 +312,7 @@ impl eframe::App for PathyApp {
                         Color32::WHITE,
                     );
                 }
-                None => {
+                _ => {
                     ui.painter().rect(
                         rect,
                         0.0,
@@ -380,16 +457,19 @@ impl eframe::App for PathyApp {
                                     0.5,
                                 );
                             }
+                            self.generate();
                         }
                     }
                     CursorMode::Delete => {
                         if let Some(i) = idx {
                             self.points.remove(i);
+                            self.generate();
                         }
                     }
                     CursorMode::Trim => {
                         if let Some(i) = idx {
                             self.points.truncate(i);
+                            self.generate();
                         }
                     }
                     CursorMode::Insert => {
@@ -406,6 +486,7 @@ impl eframe::App for PathyApp {
                                 closest_idx + 1,
                                 BezPoint::new(x, y, 2.0 * x - fx, 2.0 * y - fy, fx, fy),
                             );
+                            self.generate();
                         }
                     }
                     _ => {}
@@ -413,15 +494,20 @@ impl eframe::App for PathyApp {
             }
 
             if resp.dragged() && resp.contains_pointer() {
+                let mut changed = false;
                 if let Some(point) = &self.selected {
                     if let Some(pos) = ctx.pointer_interact_pos() {
                         if let Ok(mut p) = point.try_borrow_mut() {
                             p.x = (pos.x - rect.min.x) * (self.size / self.scale as f32);
                             p.y = (pos.y - rect.min.y) * (self.size / self.scale as f32);
+                            changed = true;
                         } else {
                             console_log!("ERROR: Failed to update point!");
                         }
                     }
+                }
+                if changed {
+                    self.generate(); // afterwards to please borrow checker
                 }
             }
 
@@ -448,6 +534,9 @@ impl eframe::App for PathyApp {
             }
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                if self.background == Background::Custom && self.overlay.is_none() {
+                    ui.label("Drop image here to set custom background");
+                }
                 egui::warn_if_debug_build(ui);
             });
         });
