@@ -4,6 +4,7 @@ use crate::bezier::{interpolate, interpolate_slope, BezPoint, Point};
 use crate::generate::generate;
 use egui::{pos2, Color32, FontDefinitions, FontFamily, FontId, Pos2, Stroke, TextEdit, Vec2};
 use egui_extras::RetainedImage;
+use std::sync::Arc;
 
 // Uncomment this section to get access to the console_log macro
 // Use console_log to print things to console. println macro doesn't work
@@ -62,10 +63,12 @@ pub struct PathyApp {
     /// Current cursor mode
     #[serde(skip)]
     pub cursor_mode: CursorMode,
-    /// Uploaded background image
+    /// Current background image
     #[serde(skip)]
     pub overlay: Option<RetainedImage>,
-    /// Field background image
+    /// Uploaded background image data
+    pub uploaded: Option<Arc<[u8]>>,
+    /// Field background state
     pub background: Background,
     /// Bezier points
     pub points: Vec<BezPoint>,
@@ -86,6 +89,7 @@ impl Default for PathyApp {
             scale: 720,
             cursor_mode: CursorMode::Default,
             overlay: None,
+            uploaded: None,
             background: Background::Game,
             points: Vec::new(),
             steps: 100,
@@ -158,7 +162,10 @@ impl PathyApp {
                 );
             }
             Background::Custom => {
-                self.overlay = None;
+                self.overlay = self
+                    .uploaded
+                    .as_ref()
+                    .and_then(|bytes| RetainedImage::from_image_bytes("", &bytes).ok());
             }
         }
     }
@@ -295,11 +302,8 @@ impl eframe::App for PathyApp {
             if self.background == Background::Custom {
                 ctx.input(|i| {
                     if let Some(file) = i.raw.dropped_files.last() {
-                        if let Some(bytes) = file.clone().bytes {
-                            if let Ok(image) = RetainedImage::from_image_bytes("", &bytes) {
-                                self.overlay = Some(image);
-                            }
-                        }
+                        self.uploaded = file.clone().bytes;
+                        self.load_field_overlay();
                     }
                 });
             }
