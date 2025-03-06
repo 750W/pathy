@@ -1,14 +1,16 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::bezier::{interpolate, interpolate_slope, BezPoint, Point};
+use crate::bezier::{interpolate, BezPoint, Point};
 use crate::generate::generate;
-use egui::{pos2, Color32, FontDefinitions, FontFamily, FontId, Pos2, Stroke, TextEdit, Vec2};
+use egui::{pos2, Color32, FontDefinitions, FontFamily, Pos2, Stroke, TextEdit, Vec2};
+#[allow(deprecated)]
 use egui_extras::RetainedImage;
 use std::sync::Arc;
 
 // Uncomment this section to get access to the console_log macro
 // Use console_log to print things to console. println macro doesn't work
 // here, so you'll need it.
+/*
 use wasm_bindgen::prelude::*;
 #[wasm_bindgen]
 extern "C" {
@@ -55,6 +57,7 @@ pub enum Background {
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
+#[allow(deprecated)]
 pub struct PathyApp {
     /// Physical size
     pub size: f32,
@@ -145,6 +148,7 @@ impl PathyApp {
         self.generated = generate(&self.points, 0.1);
     }
     /// Update field image
+    #[allow(deprecated)]
     fn load_field_overlay(&mut self) {
         match self.background {
             Background::Game => {
@@ -182,6 +186,7 @@ impl eframe::App for PathyApp {
     }
 
     /// Called each time the UI needs repainting, which may be many times per second.
+    #[allow(deprecated)]
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
         // For inspiration and more examples, go to https://emilk.github.io/egui
@@ -484,7 +489,6 @@ impl eframe::App for PathyApp {
                             // Calculate points relative to field
                             let x = (pos.x - rect.min.x) * (self.size / self.scale as f32);
                             let y = (pos.y - rect.min.y) * (self.size / self.scale as f32);
-                            console_log!("({}, {})", x, y);
                             if self.points.is_empty() {
                                 self.points
                                     .push(BezPoint::new(x, y, x - 10.0, y, x + 10.0, y));
@@ -551,8 +555,6 @@ impl eframe::App for PathyApp {
                             p.x = (pos.x - rect.min.x) * (self.size / self.scale as f32);
                             p.y = (pos.y - rect.min.y) * (self.size / self.scale as f32);
                             changed = true;
-                        } else {
-                            console_log!("ERROR: Failed to update point!");
                         }
                     }
                 }

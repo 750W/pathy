@@ -1,14 +1,15 @@
 use std::{cell::RefCell, rc::Rc};
 
+use crate::app::CursorMode;
 use egui::{lerp, pos2, Color32, Context, Pos2, Stroke, Ui};
 use uuid::Uuid;
 
 // Uncomment this section to get access to the console_log macro
 // Use console_log to print things to console. println macro doesn't work
 // here, so you'll need it.
+/*
 use wasm_bindgen::prelude::*;
 
-use crate::app::CursorMode;
 #[wasm_bindgen]
 extern "C" {
     // Use `js_namespace` here to bind `console.log(..)` instead of just
@@ -292,6 +293,7 @@ pub fn interpolate(a: &BezPoint, b: &BezPoint, t: f32) -> Point {
     Point::new(x, y)
 }
 
+/*
 /// Find the in-between slope of a Bezier curve section at t, where t is from [0, 1].
 /// # Returns
 /// Some(f32) if slope is defined, None if slope is undefined (vertical).
@@ -308,3 +310,4 @@ pub fn interpolate_slope(a: &BezPoint, b: &BezPoint, t: f32) -> Option<f32> {
         + 3.0 * t.powi(2) * (b.pos.borrow().y - b.cp1.borrow().y);
     return Some(dy / dx);
 }
+*/
