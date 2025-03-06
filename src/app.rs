@@ -173,7 +173,7 @@ impl PathyApp {
                 self.overlay = self
                     .uploaded
                     .as_ref()
-                    .and_then(|bytes| RetainedImage::from_image_bytes("", &bytes).ok());
+                    .and_then(|bytes| RetainedImage::from_image_bytes("", bytes).ok());
             }
         }
     }
@@ -309,9 +309,6 @@ impl eframe::App for PathyApp {
                                     point.borrow_mut().editing = true;
                                     point.borrow_mut().x = text.parse().unwrap_or(x);
                                     updated = true;
-                                } else {
-                                    let editing = point.borrow().editing;
-                                    point.borrow_mut().editing = editing || false;
                                 }
                             });
                             ui.horizontal(|ui| {
@@ -322,9 +319,6 @@ impl eframe::App for PathyApp {
                                     point.borrow_mut().editing = true;
                                     point.borrow_mut().y = text.parse().unwrap_or(y);
                                     updated = true;
-                                } else {
-                                    let editing = point.borrow().editing;
-                                    point.borrow_mut().editing = editing || false;
                                 }
                             });
                         });

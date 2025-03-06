@@ -1,7 +1,7 @@
 use crate::bezier::BezPoint;
 
 /// Generates path code from a path.
-pub fn generate(path: &Vec<BezPoint>, step: f32) -> String {
+pub fn generate(path: &[BezPoint], step: f32) -> String {
     if path.len() < 2 {
         return format!("std::vector<wolflib::Moment> = wolf.solve({{}}, {step});");
     }
@@ -28,5 +28,5 @@ pub fn generate(path: &Vec<BezPoint>, step: f32) -> String {
         }
     }
     result.push_str(format!("}}, {step});").as_str());
-    return result;
+    result
 }
