@@ -55,6 +55,7 @@ pub struct Point {
     pub y: f32,
     pub selected: bool,
     pub locked: bool,
+    pub editing: bool,
 }
 
 impl Point {
@@ -65,6 +66,7 @@ impl Point {
             y,
             selected: false,
             locked: false,
+            editing: false,
         }
     }
     /// Offsets the point by the x and y.
@@ -136,18 +138,18 @@ impl BezPoint {
         let cp2_id = id.with(2);
 
         // Keep control points in line
-        if self.pos.borrow().locked {
+        if self.pos.borrow().locked || self.pos.borrow().editing {
             let dx = self.pos.borrow().x - self.prev.x;
             let dy = self.pos.borrow().y - self.prev.y;
             self.cp1.borrow_mut().offset(dx, dy);
             self.cp2.borrow_mut().offset(dx, dy);
             self.prev = self.pos.borrow().clone();
-        } else if self.cp1.borrow().locked {
+        } else if self.cp1.borrow().locked || self.cp1.borrow().editing {
             *self.cp2.borrow_mut() = Point::new(
                 2.0 * self.pos.borrow().x - self.cp1.borrow().x,
                 2.0 * self.pos.borrow().y - self.cp1.borrow().y,
             );
-        } else if self.cp2.borrow().locked {
+        } else if self.cp2.borrow().locked || self.cp2.borrow().editing {
             *self.cp1.borrow_mut() = Point::new(
                 2.0 * self.pos.borrow().x - self.cp2.borrow().x,
                 2.0 * self.pos.borrow().y - self.cp2.borrow().y,

@@ -77,6 +77,9 @@ pub struct PathyApp {
     /// Locked selected point
     #[serde(skip)]
     pub selected: Option<Rc<RefCell<Point>>>,
+    /// Inspected point
+    #[serde(skip)]
+    pub inspecting: Option<Rc<RefCell<Point>>>,
     /// Generated code
     pub generated: String,
 }
@@ -94,6 +97,7 @@ impl Default for PathyApp {
             points: Vec::new(),
             steps: 100,
             selected: None,
+            inspecting: None,
             generated: String::new(),
         }
     }
@@ -276,7 +280,7 @@ impl eframe::App for PathyApp {
             });
         });
 
-        egui::SidePanel::right("Code").show(ctx, |ui| {
+        egui::SidePanel::right("side").show(ctx, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.label("Code");
@@ -286,9 +290,47 @@ impl eframe::App for PathyApp {
                             .font(egui::FontId::monospace(12.0))
                             .desired_width(f32::INFINITY),
                     );
+                    if let Some(point) = &self.inspecting {
+                        point.borrow_mut().editing = false;
+                        ui.label("Point Inspector");
+                        ui.separator();
+                        let mut updated = false;
+                        ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("X: ");
+                                let x = point.borrow().x;
+                                let mut text = format!("{x:.3}");
+                                if ui.text_edit_singleline(&mut text).has_focus() {
+                                    point.borrow_mut().editing = true;
+                                    point.borrow_mut().x = text.parse().unwrap_or(x);
+                                    updated = true;
+                                } else {
+                                    let editing = point.borrow().editing;
+                                    point.borrow_mut().editing = editing || false;
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Y: ");
+                                let y = point.borrow().y;
+                                let mut text = format!("{y:.3}");
+                                if ui.text_edit_singleline(&mut text).has_focus() {
+                                    point.borrow_mut().editing = true;
+                                    point.borrow_mut().y = text.parse().unwrap_or(y);
+                                    updated = true;
+                                } else {
+                                    let editing = point.borrow().editing;
+                                    point.borrow_mut().editing = editing || false;
+                                }
+                            });
+                        });
+                        if updated {
+                            self.generate();
+                        }
+                    }
                 });
             });
         });
+
         egui::CentralPanel::default().show(ctx, |ui| {
             /* FIELD RENDERING */
             let (rect, resp) = ui.allocate_exact_size(
@@ -374,6 +416,7 @@ impl eframe::App for PathyApp {
                 }
             }
 
+            // Draw points & check for selection
             let mut selected: Option<Rc<RefCell<Point>>> = None; // references currently selected point
             let mut idx: Option<usize> = None;
             for (i, point) in &mut self.points.iter_mut().enumerate() {
@@ -399,6 +442,9 @@ impl eframe::App for PathyApp {
                 );
                 idx = idx.or(if res.is_some() { Some(i) } else { None });
                 selected = selected.or(res);
+            }
+            if let Some(point) = &selected {
+                self.inspecting = Some(point.clone());
             }
 
             /* INPUT HANDLERS */
