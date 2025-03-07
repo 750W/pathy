@@ -1,4 +1,7 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    rc::{Rc, Weak},
+};
 
 use crate::app::CursorMode;
 use egui::{lerp, pos2, Color32, Context, Pos2, Stroke, Ui};
@@ -7,7 +10,7 @@ use uuid::Uuid;
 // Uncomment this section to get access to the console_log macro
 // Use console_log to print things to console. println macro doesn't work
 // here, so you'll need it.
-/*
+
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -36,7 +39,7 @@ macro_rules! console_log {
 
 // */
 /// A Bezier point.
-#[derive(serde::Deserialize, serde::Serialize, Clone)]
+#[derive(Clone, Debug)]
 pub struct BezPoint {
     pub pos: Rc<RefCell<Point>>,
     pub cp1: Rc<RefCell<Point>>,
@@ -47,27 +50,41 @@ pub struct BezPoint {
     pub animated: bool,
     // Previous position to keep track of offsets
     prev: Point,
+    // If the path "breaks" here (cusp, not tangent)
+    pub broken: bool,
 }
 
 /// A single selectable point.
-#[derive(serde::Deserialize, serde::Serialize, Clone, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Point {
     pub x: f32,
     pub y: f32,
     pub selected: bool,
     pub locked: bool,
     pub editing: bool,
+    pub parent: Weak<RefCell<BezPoint>>,
+}
+
+/// A saved Bezier point.
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
+pub struct SavePoint {
+    pub pos: Pos2,
+    pub cp1: Pos2,
+    pub cp2: Pos2,
+    pub id: Uuid,
+    pub broken: bool,
 }
 
 impl Point {
     /// Creates a new point.
-    fn new(x: f32, y: f32) -> Self {
+    fn new(x: f32, y: f32, parent: Weak<RefCell<BezPoint>>) -> Self {
         Self {
             x,
             y,
             selected: false,
             locked: false,
             editing: false,
+            parent,
         }
     }
     /// Offsets the point by the x and y.
@@ -87,6 +104,46 @@ impl From<Point> for Pos2 {
     }
 }
 
+impl From<BezPoint> for SavePoint {
+    /// Saves a BezPoint as a SavePoint.
+    fn from(point: BezPoint) -> Self {
+        Self {
+            pos: point.pos.borrow().clone().into(),
+            cp1: point.cp1.borrow().clone().into(),
+            cp2: point.cp2.borrow().clone().into(),
+            id: point.id,
+            broken: point.broken,
+        }
+    }
+}
+
+impl From<SavePoint> for BezPoint {
+    /// Returns an unloaded Bezier point from a saved point.
+    fn from(point: SavePoint) -> Self {
+        Self {
+            pos: Rc::new(RefCell::new(Point::new(
+                point.pos.x,
+                point.pos.y,
+                Weak::new(),
+            ))),
+            cp1: Rc::new(RefCell::new(Point::new(
+                point.cp1.x,
+                point.cp1.y,
+                Weak::new(),
+            ))),
+            cp2: Rc::new(RefCell::new(Point::new(
+                point.cp2.x,
+                point.cp2.y,
+                Weak::new(),
+            ))),
+            id: point.id,
+            animated: true,
+            prev: Point::new(point.pos.x, point.pos.y, Weak::new()),
+            broken: point.broken,
+        }
+    }
+}
+
 impl BezPoint {
     /// Creates a new bezier point.
     ///
@@ -97,15 +154,28 @@ impl BezPoint {
     /// * `cp1y` - The y position of the first control point.
     /// * `cp2x` - The x position of the second control point.
     /// * `cp2y` - The y position of the second control point.
-    pub fn new(x: f32, y: f32, cp1x: f32, cp1y: f32, cp2x: f32, cp2y: f32) -> Self {
-        Self {
-            pos: Rc::new(RefCell::new(Point::new(x, y))),
-            cp1: Rc::new(RefCell::new(Point::new(cp1x, cp1y))),
-            cp2: Rc::new(RefCell::new(Point::new(cp2x, cp2y))),
+    pub fn new(x: f32, y: f32, cp1x: f32, cp1y: f32, cp2x: f32, cp2y: f32) -> Rc<RefCell<Self>> {
+        Self::load(Self {
+            pos: Rc::new(RefCell::new(Point::new(x, y, Weak::new()))),
+            cp1: Rc::new(RefCell::new(Point::new(cp1x, cp1y, Weak::new()))),
+            cp2: Rc::new(RefCell::new(Point::new(cp2x, cp2y, Weak::new()))),
             id: Uuid::new_v4(),
             animated: false,
-            prev: Point::new(x, y),
-        }
+            prev: Point::new(x, y, Weak::new()),
+            broken: false,
+        })
+    }
+    /// Creates a new Bezier point from a saved one, instantiating its references.
+    ///
+    /// # Arguments
+    /// * `point` - The point to load.
+    pub fn load(point: Self) -> Rc<RefCell<Self>> {
+        let this = Rc::new(RefCell::new(point.clone()));
+        this.borrow_mut().pos.borrow_mut().parent = Rc::downgrade(&this);
+        this.borrow_mut().cp1.borrow_mut().parent = Rc::downgrade(&this);
+        this.borrow_mut().cp2.borrow_mut().parent = Rc::downgrade(&this);
+        this.borrow_mut().prev.parent = Rc::downgrade(&this);
+        this
     }
     /// Draws the bezier point and handles, handling animations and hover states.
     /// If hovered, returns the hovered point.
@@ -138,23 +208,27 @@ impl BezPoint {
         let cp1_id = id.with(1);
         let cp2_id = id.with(2);
 
-        // Keep control points in line
+        // Keep control points in line if unbroken
         if self.pos.borrow().locked || self.pos.borrow().editing {
             let dx = self.pos.borrow().x - self.prev.x;
             let dy = self.pos.borrow().y - self.prev.y;
             self.cp1.borrow_mut().offset(dx, dy);
             self.cp2.borrow_mut().offset(dx, dy);
             self.prev = self.pos.borrow().clone();
-        } else if self.cp1.borrow().locked || self.cp1.borrow().editing {
-            *self.cp2.borrow_mut() = Point::new(
-                2.0 * self.pos.borrow().x - self.cp1.borrow().x,
-                2.0 * self.pos.borrow().y - self.cp1.borrow().y,
-            );
-        } else if self.cp2.borrow().locked || self.cp2.borrow().editing {
-            *self.cp1.borrow_mut() = Point::new(
-                2.0 * self.pos.borrow().x - self.cp2.borrow().x,
-                2.0 * self.pos.borrow().y - self.cp2.borrow().y,
-            );
+        } else if !self.broken
+            && (self.cp1.borrow().locked || self.cp1.borrow().editing || self.pos.borrow().editing)
+        {
+            self.cp2.borrow_mut().x = 2.0 * self.pos.borrow().x - self.cp1.borrow().x;
+            self.cp2.borrow_mut().y = 2.0 * self.pos.borrow().y - self.cp1.borrow().y;
+        } else if !self.broken && (self.cp2.borrow().locked || self.cp2.borrow().editing) {
+            self.cp1.borrow_mut().x = 2.0 * self.pos.borrow().x - self.cp2.borrow().x;
+            self.cp1.borrow_mut().y = 2.0 * self.pos.borrow().y - self.cp2.borrow().y;
+        }
+
+        // Ensure points are in line
+        if !self.broken {
+            self.cp2.borrow_mut().x = 2.0 * self.pos.borrow().x - self.cp1.borrow().x;
+            self.cp2.borrow_mut().y = 2.0 * self.pos.borrow().y - self.cp1.borrow().y;
         }
 
         // Main point
@@ -290,7 +364,7 @@ pub fn interpolate(a: &BezPoint, b: &BezPoint, t: f32) -> Point {
         + 3.0 * (1.0 - t).powi(2) * t * a.cp2.borrow().y
         + 3.0 * (1.0 - t) * t.powi(2) * b.cp1.borrow().y
         + t.powi(3) * b.pos.borrow().y;
-    Point::new(x, y)
+    Point::new(x, y, Weak::new())
 }
 
 /*

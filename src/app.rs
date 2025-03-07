@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::bezier::{interpolate, BezPoint, Point};
+use crate::bezier::{interpolate, BezPoint, Point, SavePoint};
 use crate::generate::generate;
 use egui::{pos2, Color32, FontDefinitions, FontFamily, Pos2, Stroke, TextEdit, Vec2};
 #[allow(deprecated)]
@@ -10,7 +10,6 @@ use std::sync::Arc;
 // Uncomment this section to get access to the console_log macro
 // Use console_log to print things to console. println macro doesn't work
 // here, so you'll need it.
-/*
 use wasm_bindgen::prelude::*;
 #[wasm_bindgen]
 extern "C" {
@@ -74,7 +73,8 @@ pub struct PathyApp {
     /// Field background state
     pub background: Background,
     /// Bezier points
-    pub points: Vec<BezPoint>,
+    #[serde(skip)]
+    pub points: Vec<Rc<RefCell<BezPoint>>>,
     /// Number of steps
     pub steps: usize,
     /// Locked selected point
@@ -138,6 +138,17 @@ impl PathyApp {
             Default::default()
         };
 
+        // load saved path
+        app.points = if let Some(storage) = cc.storage {
+            eframe::get_value::<Vec<SavePoint>>(storage, "path")
+                .unwrap_or_default()
+                .iter()
+                .map(|p| BezPoint::load(p.clone().into()))
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         // Generate code and load overlay on startup
         app.generate();
         app.load_field_overlay();
@@ -182,7 +193,14 @@ impl PathyApp {
 impl eframe::App for PathyApp {
     /// Called by the frame work to save state before shutdown.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        // save app state
         eframe::set_value(storage, eframe::APP_KEY, self);
+        let saved: Vec<SavePoint> = self
+            .points
+            .iter()
+            .map(|p| p.borrow().clone().into())
+            .collect();
+        eframe::set_value(storage, "path", &saved);
     }
 
     /// Called each time the UI needs repainting, which may be many times per second.
@@ -295,36 +313,45 @@ impl eframe::App for PathyApp {
                             .font(egui::FontId::monospace(12.0))
                             .desired_width(f32::INFINITY),
                     );
-                    if let Some(point) = &self.inspecting {
-                        point.borrow_mut().editing = false;
-                        ui.label("Point Inspector");
-                        ui.separator();
-                        let mut updated = false;
-                        ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label("X: ");
-                                let x = point.borrow().x;
-                                let mut text = format!("{x:.3}");
-                                if ui.text_edit_singleline(&mut text).has_focus() {
-                                    point.borrow_mut().editing = true;
-                                    point.borrow_mut().x = text.parse().unwrap_or(x);
+                    let mut updated = false;
+                    if let Some(point_ref) = &self.inspecting.clone() {
+                        let mut point = point_ref.borrow_mut();
+                        if let Some(parent) = point.parent.upgrade() {
+                            point.editing = false;
+                            ui.label("Point Inspector");
+                            ui.separator();
+                            ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label("X: ");
+                                    let x = point.x;
+                                    let mut text = format!("{x:.3}");
+                                    if ui.text_edit_singleline(&mut text).has_focus() {
+                                        point.editing = true;
+                                        point.x = text.parse().unwrap_or(x);
+                                        updated = true;
+                                    }
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Y: ");
+                                    let y = point.y;
+                                    let mut text = format!("{y:.3}");
+                                    if ui.text_edit_singleline(&mut text).has_focus() {
+                                        point.editing = true;
+                                        point.y = text.parse().unwrap_or(y);
+                                        updated = true;
+                                    }
+                                });
+                                if ui
+                                    .checkbox(&mut parent.borrow_mut().broken, "Broken")
+                                    .clicked()
+                                {
                                     updated = true;
                                 }
                             });
-                            ui.horizontal(|ui| {
-                                ui.label("Y: ");
-                                let y = point.borrow().y;
-                                let mut text = format!("{y:.3}");
-                                if ui.text_edit_singleline(&mut text).has_focus() {
-                                    point.borrow_mut().editing = true;
-                                    point.borrow_mut().y = text.parse().unwrap_or(y);
-                                    updated = true;
-                                }
-                            });
-                        });
-                        if updated {
-                            self.generate();
                         }
+                    }
+                    if updated {
+                        self.generate();
                     }
                 });
             });
@@ -378,8 +405,8 @@ impl eframe::App for PathyApp {
             let mut closest_step: f32 = 0.0;
             if self.points.len() >= 2 {
                 for idx in 0..self.points.len() - 1 {
-                    let a = self.points[idx].clone();
-                    let b = self.points[idx + 1].clone();
+                    let a = self.points[idx].borrow_mut();
+                    let mut b = self.points[idx + 1].borrow_mut();
                     // evaluate each pair
                     let draw_steps = if !b.animated {
                         ctx.animate_value_with_time(
@@ -393,7 +420,7 @@ impl eframe::App for PathyApp {
                     // Lock once animation completed
                     // So step size changes don't animate
                     if draw_steps >= self.steps {
-                        self.points[idx + 1].animated = true;
+                        b.animated = true;
                     }
                     for i in 1..draw_steps {
                         let point = interpolate(&a, &b, i as f32 / self.steps as f32)
@@ -419,7 +446,7 @@ impl eframe::App for PathyApp {
             let mut selected: Option<Rc<RefCell<Point>>> = None; // references currently selected point
             let mut idx: Option<usize> = None;
             for (i, point) in &mut self.points.iter_mut().enumerate() {
-                let res = point.draw(
+                let res = point.borrow_mut().draw(
                     ui,
                     ctx,
                     self.scale as f32 / self.size,
@@ -487,9 +514,10 @@ impl eframe::App for PathyApp {
                                 self.points
                                     .push(BezPoint::new(x, y, x - 10.0, y, x + 10.0, y));
                             } else {
-                                let Pos2 { x: ix, y: iy } =
-                                    Pos2::from(self.points.last().unwrap().cp2.borrow().clone())
-                                        .lerp(pos2(x, y), 0.5);
+                                let Pos2 { x: ix, y: iy } = Pos2::from(
+                                    self.points.last().unwrap().borrow().cp2.borrow().clone(),
+                                )
+                                .lerp(pos2(x, y), 0.5);
                                 self.points.push(BezPoint::new(
                                     x,
                                     y,
@@ -500,7 +528,7 @@ impl eframe::App for PathyApp {
                                 ));
                                 // setup initial animation value
                                 ctx.animate_value_with_time(
-                                    ui.make_persistent_id(self.points.last().unwrap().id),
+                                    ui.make_persistent_id(self.points.last().unwrap().borrow().id),
                                     0.0,
                                     0.5,
                                 );
@@ -526,8 +554,8 @@ impl eframe::App for PathyApp {
                             let y = (pos.y - rect.min.y) * (self.size / self.scale as f32);
                             // Calculate future x and ys
                             let Point { x: fx, y: fy, .. } = interpolate(
-                                &self.points[closest_idx],
-                                &self.points[closest_idx + 1],
+                                &self.points[closest_idx].borrow(),
+                                &self.points[closest_idx + 1].borrow(),
                                 closest_step + 0.1,
                             );
                             self.points.insert(
