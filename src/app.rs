@@ -85,6 +85,8 @@ pub struct PathyApp {
     pub inspecting: Option<Rc<RefCell<Point>>>,
     /// Generated code
     pub generated: String,
+    /// Generated save data
+    pub save_data: String,
 }
 
 impl Default for PathyApp {
@@ -102,6 +104,7 @@ impl Default for PathyApp {
             selected: None,
             inspecting: None,
             generated: String::new(),
+            save_data: String::new(),
         }
     }
 }
@@ -139,15 +142,11 @@ impl PathyApp {
         };
 
         // load saved path
-        app.points = if let Some(storage) = cc.storage {
-            eframe::get_value::<Vec<SavePoint>>(storage, "path")
-                .unwrap_or_default()
-                .iter()
-                .map(|p| BezPoint::load(p.clone().into()))
-                .collect()
-        } else {
-            Vec::new()
-        };
+        if let Some(storage) = cc.storage {
+            app.load_save(
+                &eframe::get_value::<Vec<SavePoint>>(storage, "path").unwrap_or_default(),
+            );
+        }
 
         // Generate code and load overlay on startup
         app.generate();
@@ -188,6 +187,20 @@ impl PathyApp {
             }
         }
     }
+    /// Gets the Bezier points in their save state
+    fn get_save(&self) -> Vec<SavePoint> {
+        self.points
+            .iter()
+            .map(|p| p.borrow().clone().into())
+            .collect()
+    }
+    /// Loads saved Bezier points
+    fn load_save(&mut self, save: &Vec<SavePoint>) {
+        self.points = save
+            .iter()
+            .map(|p| BezPoint::load(p.clone().into()))
+            .collect();
+    }
 }
 
 impl eframe::App for PathyApp {
@@ -195,12 +208,7 @@ impl eframe::App for PathyApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         // save app state
         eframe::set_value(storage, eframe::APP_KEY, self);
-        let saved: Vec<SavePoint> = self
-            .points
-            .iter()
-            .map(|p| p.borrow().clone().into())
-            .collect();
-        eframe::set_value(storage, "path", &saved);
+        eframe::set_value(storage, "path", &self.get_save());
     }
 
     /// Called each time the UI needs repainting, which may be many times per second.
@@ -353,6 +361,26 @@ impl eframe::App for PathyApp {
                     if updated {
                         self.generate();
                     }
+                    ui.label("Save Data");
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("Save").clicked() {
+                            self.save_data = serde_json::to_string(&self.get_save()).unwrap();
+                        }
+                        if ui.button("Load").clicked() {
+                            if let Ok(data) =
+                                serde_json::from_str::<Vec<SavePoint>>(&self.save_data)
+                            {
+                                self.load_save(&data);
+                                self.generate();
+                            }
+                        }
+                    });
+                    ui.add(
+                        TextEdit::multiline(&mut self.save_data)
+                            .font(egui::FontId::monospace(12.0))
+                            .desired_width(f32::INFINITY),
+                    );
                 });
             });
         });
