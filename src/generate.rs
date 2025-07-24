@@ -2,7 +2,7 @@ use egui::{Pos2, Vec2};
 
 use std::{cell::RefCell, rc::Rc};
 
-use crate::bezier::Point;
+use crate::point::Point;
 
 /// Formats a number to a string,
 fn format_num(num: f32, precision: usize) -> String {
@@ -13,7 +13,7 @@ fn format_num(num: f32, precision: usize) -> String {
 }
 
 /// Generates path code from a path.
-pub fn generate(path: &[Rc<RefCell<Point>>], step: f32) -> String {
+pub fn generate(path: &[Rc<RefCell<Point>>]) -> String {
     if path.len() < 2 {
         return "// Create two points to get started".into();
     }

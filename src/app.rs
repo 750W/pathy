@@ -1,12 +1,13 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::bezier::{interpolate, Point};
 use crate::generate::generate;
+use crate::point::{interpolate, Point};
 use egui::{pos2, Color32, FontDefinitions, FontFamily, Pos2, Stroke, TextEdit, Vec2};
 #[allow(deprecated)]
 use egui_extras::RetainedImage;
 use std::sync::Arc;
 
+/*
 // Uncomment this section to get access to the console_log macro
 // Use console_log to print things to console. println macro doesn't work
 // here, so you'll need it.
@@ -150,7 +151,7 @@ impl PathyApp {
     }
     /// Update generated code
     fn generate(&mut self) {
-        self.generated = generate(&self.points, 0.1);
+        self.generated = generate(&self.points);
     }
     /// Update field image
     #[allow(deprecated)]
@@ -404,7 +405,6 @@ impl eframe::App for PathyApp {
             let mut min_dis = f32::MAX;
             let mut closest: Option<Pos2> = None;
             let mut closest_idx: usize = 0;
-            let mut closest_step: f32 = 0.0;
             if self.points.len() >= 2 {
                 for idx in 0..self.points.len() - 1 {
                     let a = self.points[idx].borrow_mut();
@@ -439,7 +439,6 @@ impl eframe::App for PathyApp {
                                     min_dis = dist;
                                     closest = Some(point);
                                     closest_idx = idx;
-                                    closest_step = i as f32 / steps as f32;
                                 }
                             }
                         }
