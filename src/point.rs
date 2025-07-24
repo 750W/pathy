@@ -2,6 +2,7 @@ use crate::app::CursorMode;
 use egui::{lerp, pos2, Color32, Context, Pos2, Stroke, Ui};
 use uuid::Uuid;
 
+/*
 // Uncomment this section to get access to the console_log macro
 // Use console_log to print things to console. println macro doesn't work
 // here, so you'll need it.
@@ -139,12 +140,10 @@ impl Point {
         // Draw point
         ui.painter()
             .circle_stroke(pos2(x, y), radius, Stroke::new(2.0, color));
-        console_log!("{}", self.selected);
         self.selected
     }
 
     pub fn get_radius(&self) -> f32 {
-        console_log!("{}", self.selected || self.locked);
         if self.selected || self.locked {
             Self::HOVER_RADIUS
         } else {
