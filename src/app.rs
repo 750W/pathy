@@ -1,8 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::generate::generate;
-use crate::point::{Point, interpolate};
-use egui::{Color32, FontDefinitions, FontFamily, Pos2, Stroke, TextEdit, Vec2, pos2};
+use crate::point::{interpolate, Point};
+use egui::{pos2, Color32, FontDefinitions, FontFamily, Pos2, Stroke, TextEdit, Vec2};
 #[allow(deprecated)]
 use egui_extras::RetainedImage;
 use std::sync::Arc;
