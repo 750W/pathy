@@ -1,5 +1,5 @@
 use crate::app::CursorMode;
-use egui::{lerp, pos2, Color32, Context, Pos2, Stroke, Ui};
+use egui::{Color32, Context, Pos2, Stroke, Ui, lerp, pos2};
 use uuid::Uuid;
 
 /*
