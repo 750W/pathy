@@ -46,17 +46,10 @@ pub fn generate(path: &[Rc<RefCell<Point>>]) -> String {
     // now return it all formatted
     for (length, turn) in moves {
         let mut addition = String::new();
-        let distance = &format!(
-            "chassis.pid_drive_set({}_in, DRIVE_SPEED);\nchassis.pid_wait();\n",
-            format_num(length, 2)
-        );
         if let Some(angle) = turn {
-            addition.push_str(&format!(
-                "chassis.pid_turn_set({}_deg, DRIVE_SPEED);\nchassis.pid_wait();",
-                format_num(angle, 2)
-            ));
+            addition.push_str(&format!("chassis.turn({});\n", format_num(angle, 2)));
         }
-        addition.push_str(distance);
+        addition.push_str(&format!("chassis.drive({});\n", format_num(length, 2)));
         result.push_str(&addition);
     }
     result
